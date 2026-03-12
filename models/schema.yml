@@ -1,0 +1,26 @@
+version: 2
+
+models:
+
+  - name: dim_customer
+    description: Customer dimension table
+    columns:
+      - name: customer_id
+        tests:
+          - not_null
+          - unique
+
+  - name: dim_bureau
+    description: Bureau credit history
+    columns:
+      - name: bureau_id
+        tests:
+          - not_null
+          - unique
+
+  - name: fact_loans
+    description: Loan fact table
+    columns:
+      - name: loan_amount
+        tests:
+          - not_null

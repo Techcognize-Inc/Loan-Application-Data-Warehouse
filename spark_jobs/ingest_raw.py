@@ -13,7 +13,7 @@ TABLE_MAP = {
     "credit_card_balance.csv": "credit_card_balance",
 }
 
-RAW_PATH = "/opt/spark/work-dir/data/raw"
+RAW_PATH = RAW_PATH = "/opt/spark/work-dir/data/raw"
 
 def main():
     spark = SparkSession.builder.appName("de3-ingest-raw").getOrCreate()

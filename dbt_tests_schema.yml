@@ -1,0 +1,45 @@
+version: 2
+
+models:
+
+  - name: dim_customer
+    description: Customer dimension table
+
+    columns:
+      - name: customer_id
+        description: Unique customer identifier
+        tests:
+          - not_null
+          - unique
+
+  - name: dim_bureau
+    description: Bureau credit history dimension
+
+    columns:
+      - name: bureau_id
+        description: Bureau record id
+        tests:
+          - not_null
+          - unique
+
+      - name: customer_id
+        tests:
+          - not_null
+
+  - name: fact_loans
+    description: Fact table containing loan applications
+
+    columns:
+      - name: loan_id
+        description: Unique loan id
+        tests:
+          - not_null
+          - unique
+
+      - name: customer_id
+        description: Foreign key to customer
+        tests:
+          - not_null
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_id

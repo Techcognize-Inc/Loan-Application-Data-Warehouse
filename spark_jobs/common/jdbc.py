@@ -1,10 +1,9 @@
 def jdbc_url():
-    # Spark container talks to Postgres using docker service name "postgres"
-    return "jdbc:postgresql://postgres:5432/bankingdb"
+    return "jdbc:postgresql://localhost:5432/analytics_dev"
 
 def jdbc_properties():
     return {
-        "user": "postgres",
+        "user": "revanth",
         "password": "password",
-        "driver": "org.postgresql.Driver",
+        "driver": "org.postgresql.Driver"
     }
