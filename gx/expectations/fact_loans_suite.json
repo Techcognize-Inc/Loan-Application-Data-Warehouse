@@ -1,0 +1,70 @@
+{
+  "expectations": [
+    {
+      "id": "26048757-94b8-44c0-98d6-ef0e9b58716c",
+      "kwargs": {
+        "column": "customer_key"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "14e78d25-eb02-4d70-aeae-9d15b99088f8",
+      "kwargs": {
+        "column": "avg_credit_amount",
+        "min_value": 0.0
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "0680bde5-da24-4232-992e-2f7e5dd8414f",
+      "kwargs": {
+        "column": "avg_income",
+        "min_value": 0.0
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "4bc4614c-7606-4460-a569-edce5dc562d7",
+      "kwargs": {
+        "column": "loan_application_count",
+        "min_value": 1.0
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "13328ea8-d723-450b-b01e-b80e12259d57",
+      "kwargs": {
+        "column": "total_bureau_credit",
+        "min_value": 0.0,
+        "mostly": 0.95
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "de4d59d1-b6e4-40d5-aef3-02910fb9cad0",
+      "kwargs": {
+        "max_value": 1500000,
+        "min_value": 1400000
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_table_row_count_to_be_between"
+    }
+  ],
+  "id": "78af0028-17a5-45a4-8f48-fc6ae8671ada",
+  "meta": {
+    "great_expectations_version": "1.15.0"
+  },
+  "name": "fact_loans_suite",
+  "notes": null
+}

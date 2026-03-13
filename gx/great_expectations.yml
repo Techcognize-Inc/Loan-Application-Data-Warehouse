@@ -1,4 +1,3 @@
-
 # Welcome to Great Expectations! Always know what to expect from your data.
 #
 # Here you can define datasources, batch kwargs generators, integrations and
@@ -9,11 +8,7 @@
 
 # config_version refers to the syntactic version of this config file, and is used in maintaining backwards compatibility
 # It is auto-generated and usually does not need to be changed.
-config_version: 3
-
-# Datasources tell Great Expectations where your data lives and how to get it.
-# Read more at https://docs.greatexpectations.io/docs/guides/connecting_to_your_data/connect_to_data_overview
-datasources: {}
+config_version: 4.0
 
 # This config file supports variable substitution which enables: 1) keeping
 # secrets out of source control & 2) environment-based configuration changes
@@ -43,26 +38,17 @@ stores:
 # Stores are configurable places to store things like Expectations, Validations
 # Data Docs, and more. These are for advanced users only - most users can simply
 # leave this section alone.
-#
-# Three stores are required: expectations, validations, and
-# evaluation_parameters, and must exist with a valid store entry. Additional
-# stores can be configured for uses such as data_docs, etc.
   expectations_store:
     class_name: ExpectationsStore
     store_backend:
       class_name: TupleFilesystemStoreBackend
       base_directory: expectations/
 
-  validations_store:
-    class_name: ValidationsStore
+  validation_results_store:
+    class_name: ValidationResultsStore
     store_backend:
       class_name: TupleFilesystemStoreBackend
       base_directory: uncommitted/validations/
-
-  evaluation_parameter_store:
-    # Evaluation Parameters enable dynamic expectations. Read more here:
-    # https://docs.greatexpectations.io/docs/reference/evaluation_parameters/
-    class_name: EvaluationParameterStore
 
   checkpoint_store:
     class_name: CheckpointStore
@@ -71,16 +57,14 @@ stores:
       suppress_store_backend_id: true
       base_directory: checkpoints/
 
-  profiler_store:
-    class_name: ProfilerStore
+  validation_definition_store:
+    class_name: ValidationDefinitionStore
     store_backend:
       class_name: TupleFilesystemStoreBackend
-      suppress_store_backend_id: true
-      base_directory: profilers/
+      base_directory: validation_definitions/
 
 expectations_store_name: expectations_store
-validations_store_name: validations_store
-evaluation_parameter_store_name: evaluation_parameter_store
+validation_results_store_name: validation_results_store
 checkpoint_store_name: checkpoint_store
 
 data_docs_sites:
@@ -90,13 +74,47 @@ data_docs_sites:
   # profiles from the uncommitted directory. Read more at https://docs.greatexpectations.io/docs/terms/data_docs
   local_site:
     class_name: SiteBuilder
-    # set to false to hide how-to buttons in Data Docs
     show_how_to_buttons: true
     store_backend:
-        class_name: TupleFilesystemStoreBackend
-        base_directory: uncommitted/data_docs/local_site/
+      class_name: TupleFilesystemStoreBackend
+      base_directory: uncommitted/data_docs/local_site/
     site_index_builder:
-        class_name: DefaultSiteIndexBuilder
-
-anonymous_usage_statistics:
-  enabled: True
+      class_name: DefaultSiteIndexBuilder
+fluent_datasources:
+  loan_warehouse:
+    type: postgres
+    id: ef283b5b-cdad-4480-ac2d-8cc7e0ffbeae
+    assets:
+      dim_customer:
+        type: table
+        id: 2f1ed321-06d9-4044-869b-92ce56777f48
+        batch_metadata: {}
+        batch_definitions:
+          customer_batch:
+            id: 2b3d9c7d-faba-4d79-8057-f58255959ab3
+            partitioner:
+        table_name: dim_customer
+        schema_name: warehouse_warehouse
+      fact_loans:
+        type: table
+        id: a46b5a39-5341-4d7f-9fe9-9f171a36df3b
+        batch_metadata: {}
+        batch_definitions:
+          loans_batch:
+            id: 19b35b76-08e8-47ab-95d2-6d7d8b5d5036
+            partitioner:
+        table_name: fact_loans
+        schema_name: warehouse_warehouse
+      dim_bureau:
+        type: table
+        id: 0f00f193-55e1-4509-b2be-fdbc9465cc87
+        batch_metadata: {}
+        batch_definitions:
+          bureau_batch:
+            id: d0643d7a-2147-442f-bb27-4a42e5f1053a
+            partitioner:
+        table_name: dim_bureau
+        schema_name: warehouse_warehouse
+    connection_string: postgresql+psycopg2://revanth@localhost:5432/analytics_dev
+analytics_enabled:
+data_context_id: 0145ad8b-4c5d-4d1c-bff8-af47bfa8b738

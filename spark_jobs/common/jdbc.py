@@ -1,9 +1,9 @@
 def jdbc_url():
-    return "jdbc:postgresql://localhost:5432/analytics_dev"
+    return"jdbc:postgresql://de3-postgres:5432/bankingdb"
 
 def jdbc_properties():
     return {
-        "user": "revanth",
+        "user": "postgres",
         "password": "password",
         "driver": "org.postgresql.Driver"
     }
