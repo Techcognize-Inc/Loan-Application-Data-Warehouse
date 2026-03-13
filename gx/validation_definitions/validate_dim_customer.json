@@ -1,0 +1,22 @@
+{
+  "data": {
+    "asset": {
+      "id": "2f1ed321-06d9-4044-869b-92ce56777f48",
+      "name": "dim_customer"
+    },
+    "batch_definition": {
+      "id": "2b3d9c7d-faba-4d79-8057-f58255959ab3",
+      "name": "customer_batch"
+    },
+    "datasource": {
+      "id": "ef283b5b-cdad-4480-ac2d-8cc7e0ffbeae",
+      "name": "loan_warehouse"
+    }
+  },
+  "id": "7ac16ba3-fc59-42fa-8997-ce7ed897f23f",
+  "name": "validate_dim_customer",
+  "suite": {
+    "id": "2163086c-4081-434c-84cf-60bdc9212a48",
+    "name": "dim_customer_suite"
+  }
+}

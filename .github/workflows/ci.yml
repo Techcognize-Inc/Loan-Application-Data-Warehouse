@@ -1,0 +1,99 @@
+name: dbt CI Pipeline
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  dbt-test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: revanth
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: analytics_dev
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install dbt-postgres great-expectations psycopg2-binary pandas
+
+      - name: Create dbt profiles
+        run: |
+          mkdir -p ~/.dbt
+          cat > ~/.dbt/profiles.yml << 'PROFILE'
+          loan_dw:
+            target: dev
+            outputs:
+              dev:
+                type: postgres
+                host: localhost
+                port: 5432
+                user: revanth
+                password: password
+                dbname: analytics_dev
+                schema: warehouse_staging
+                threads: 4
+          PROFILE
+
+      - name: Create raw schema and seed data
+        run: |
+          PGPASSWORD=password psql -h localhost -U revanth -d analytics_dev << 'SQL'
+          CREATE SCHEMA IF NOT EXISTS raw;
+          CREATE SCHEMA IF NOT EXISTS warehouse_staging;
+          CREATE SCHEMA IF NOT EXISTS warehouse_warehouse;
+          CREATE TABLE IF NOT EXISTS raw.application_train (
+            SK_ID_CURR INT,
+            TARGET INT,
+            CODE_GENDER VARCHAR(10),
+            AMT_INCOME_TOTAL FLOAT,
+            AMT_CREDIT FLOAT
+          );
+          CREATE TABLE IF NOT EXISTS raw.bureau (
+            SK_ID_BUREAU INT,
+            SK_ID_CURR INT,
+            CREDIT_ACTIVE VARCHAR(20),
+            DAYS_CREDIT INT,
+            DAYS_CREDIT_ENDDATE FLOAT,
+            AMT_CREDIT_SUM FLOAT
+          );
+          INSERT INTO raw.application_train VALUES
+            (1, 0, 'M', 50000, 100000),
+            (2, 1, 'F', 30000, 80000),
+            (3, 0, 'XNA', 45000, 120000);
+          INSERT INTO raw.bureau VALUES
+            (1001, 1, 'Active', -365, 0, 50000),
+            (1002, 2, 'Closed', -730, -365, 30000);
+          SQL
+
+      - name: Install dbt packages
+        run: dbt deps || true
+
+      - name: Run dbt models
+        run: dbt run
+
+      - name: Run dbt tests
+        run: dbt test
+
+      - name: Run Great Expectations
+        run: python great_expectations_suite/run_validations.py
+

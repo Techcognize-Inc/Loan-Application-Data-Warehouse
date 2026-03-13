@@ -1,0 +1,20 @@
+{
+  "expectations": [
+    {
+      "id": "b67b60e3-cf15-42a0-a2d5-8135b99a18c3",
+      "kwargs": {
+        "max_value": 1750000,
+        "min_value": 1700000
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_table_row_count_to_be_between"
+    }
+  ],
+  "id": "1e25cd52-dada-4714-939a-7253a67629dc",
+  "meta": {
+    "great_expectations_version": "1.15.0"
+  },
+  "name": "dim_bureau_suite",
+  "notes": null
+}

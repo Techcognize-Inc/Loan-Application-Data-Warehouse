@@ -1,0 +1,80 @@
+version: 2
+
+models:
+  - name: stg_applications
+    description: >
+      Staged loan application data cleaned from raw.application_train.
+      One row per loan applicant.
+    columns:
+      - name: customer_id
+        description: Unique identifier for each loan applicant.
+      - name: loan_amount
+        description: Total loan credit amount applied for.
+      - name: income
+        description: Total annual income of the applicant.
+      - name: default_flag
+        description: 1 if the applicant defaulted, 0 if not.
+      - name: gender
+        description: Gender of the applicant (M/F).
+
+  - name: stg_bureau
+    description: >
+      Staged bureau credit history from raw.bureau.
+      One row per bureau credit record per customer.
+    columns:
+      - name: bureau_id
+        description: Unique identifier for each bureau credit record.
+      - name: customer_id
+        description: Foreign key linking to the applicant.
+      - name: AMT_CREDIT_SUM
+        description: Total credit amount recorded in the bureau.
+
+  - name: dim_customer
+    description: >
+      Customer dimension table. One row per unique applicant.
+      Contains demographic and loan application attributes.
+    columns:
+      - name: customer_key
+        description: Primary key — unique identifier for each customer.
+        tests:
+          - not_null
+          - unique
+      - name: target
+        description: Default flag — 1 defaulted, 0 did not default.
+      - name: code_gender
+        description: Gender of the customer (M/F).
+      - name: amt_income_total
+        description: Total annual income of the customer.
+      - name: amt_credit
+        description: Total loan credit amount applied for.
+
+  - name: dim_bureau
+    description: >
+      Bureau dimension table. One row per bureau credit record.
+      Contains credit history from external bureau data.
+    columns:
+      - name: bureau_id
+        description: Primary key — unique bureau record identifier.
+        tests:
+          - not_null
+          - unique
+
+  - name: fact_loans
+    description: >
+      Loan fact table. One row per customer per bureau record.
+      Contains aggregated loan metrics joined from applications and bureau data.
+    columns:
+      - name: customer_key
+        description: Foreign key linking to dim_customer.
+      - name: avg_credit_amount
+        description: Average credit amount across loan applications.
+        tests:
+          - not_null
+      - name: avg_income
+        description: Average income of the applicant.
+      - name: loan_application_count
+        description: Total number of loan applications per customer.
+      - name: bureau_id
+        description: Foreign key linking to dim_bureau.
+      - name: total_bureau_credit
+        description: Sum of all bureau credit amounts for the customer.

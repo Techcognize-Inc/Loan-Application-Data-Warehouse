@@ -1,0 +1,22 @@
+{
+  "data": {
+    "asset": {
+      "id": "a46b5a39-5341-4d7f-9fe9-9f171a36df3b",
+      "name": "fact_loans"
+    },
+    "batch_definition": {
+      "id": "19b35b76-08e8-47ab-95d2-6d7d8b5d5036",
+      "name": "loans_batch"
+    },
+    "datasource": {
+      "id": "ef283b5b-cdad-4480-ac2d-8cc7e0ffbeae",
+      "name": "loan_warehouse"
+    }
+  },
+  "id": "2824d901-2d12-4486-ad71-3e95b2154757",
+  "name": "validate_fact_loans",
+  "suite": {
+    "id": "78af0028-17a5-45a4-8f48-fc6ae8671ada",
+    "name": "fact_loans_suite"
+  }
+}
