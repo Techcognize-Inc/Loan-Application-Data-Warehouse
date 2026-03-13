@@ -13,12 +13,14 @@ from great_expectations.datasource.fluent import PandasDatasource
 import pandas as pd
 import psycopg2
 import sys
+import os
 
 DB_PARAMS = {
-    "host": "localhost",
-    "port": 5432,
-    "dbname": "analytics_dev",
-    "user": "revanth",
+    "host":     os.getenv("DB_HOST", "localhost"),
+    "port":     int(os.getenv("DB_PORT", 5432)),
+    "dbname":   os.getenv("DB_NAME", "analytics_dev"),
+    "user":     os.getenv("DB_USER", "revanth"),
+    "password": os.getenv("DB_PASSWORD", "password"),
 }
 
 def fetch(query):
@@ -33,9 +35,9 @@ def run():
 
     # ── Fetch data ────────────────────────────────
     print("\n📥 Fetching sample data...")
-    df_customer = fetch("SELECT * FROM warehouse_warehouse.dim_customer LIMIT 10000")
-    df_loans    = fetch("SELECT * FROM warehouse_warehouse.fact_loans LIMIT 10000")
-    df_bureau   = fetch("SELECT bureau_id FROM warehouse_warehouse.dim_bureau LIMIT 10000")
+    df_customer = fetch("SELECT * FROM warehouse.dim_customer LIMIT 10000")
+    df_loans    = fetch("SELECT * FROM warehouse.fact_loans LIMIT 10000")
+    df_bureau   = fetch("SELECT bureau_id FROM warehouse.dim_bureau LIMIT 10000")
     print("✅ Data fetched!")
 
     # ── GX context with Pandas ────────────────────
