@@ -1,0 +1,22 @@
+{
+  "data": {
+    "asset": {
+      "id": "0f00f193-55e1-4509-b2be-fdbc9465cc87",
+      "name": "dim_bureau"
+    },
+    "batch_definition": {
+      "id": "d0643d7a-2147-442f-bb27-4a42e5f1053a",
+      "name": "bureau_batch"
+    },
+    "datasource": {
+      "id": "ef283b5b-cdad-4480-ac2d-8cc7e0ffbeae",
+      "name": "loan_warehouse"
+    }
+  },
+  "id": "07375a91-d540-44aa-81a6-78dd1591e7b1",
+  "name": "validate_dim_bureau",
+  "suite": {
+    "id": "1e25cd52-dada-4714-939a-7253a67629dc",
+    "name": "dim_bureau_suite"
+  }
+}

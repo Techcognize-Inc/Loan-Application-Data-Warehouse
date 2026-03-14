@@ -1,14 +1,13 @@
 {{ config(materialized='table') }}
 
 SELECT
-    l."SK_ID_PREV"      AS loan_id,
-    l."SK_ID_CURR"      AS customer_id,
-    l."AMT_APPLICATION" AS application_amount,
-    l."AMT_CREDIT"      AS credit_amount,
-    l."AMT_ANNUITY"     AS annuity_amount,
-    l."AMT_GOODS_PRICE" AS goods_price,
-    l."NAME_CONTRACT_TYPE" AS contract_type,
-    l."NAME_CONTRACT_STATUS" AS contract_status,
-    l."CNT_PAYMENT"     AS payment_count,
-    l."DAYS_DECISION"   AS decision_days
-FROM {{ ref('stg_loans') }} l
+    a.customer_id               AS customer_key,
+    AVG(a.loan_amount)          AS avg_credit_amount,
+    AVG(a.income)               AS avg_income,
+    COUNT(a.customer_id)        AS loan_application_count,
+    b.bureau_id                 AS bureau_id,
+    SUM(b."AMT_CREDIT_SUM")     AS total_bureau_credit
+FROM {{ ref('stg_applications') }} a
+JOIN {{ ref('stg_bureau') }} b
+    ON a.customer_id = b.customer_id
+GROUP BY a.customer_id, b.bureau_id

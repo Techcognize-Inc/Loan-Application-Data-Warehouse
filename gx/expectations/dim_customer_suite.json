@@ -1,0 +1,85 @@
+{
+  "expectations": [
+    {
+      "id": "002d6d1c-7b4b-49cd-9535-6c91b1d0823c",
+      "kwargs": {
+        "column": "customer_key"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_not_be_null"
+    },
+    {
+      "id": "4c03fe60-8f5f-42dd-990f-9335dbcdd6b5",
+      "kwargs": {
+        "column": "customer_key"
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_unique"
+    },
+    {
+      "id": "fd403a50-526b-4bd9-bea7-dec7f2cde94a",
+      "kwargs": {
+        "column": "code_gender",
+        "value_set": [
+          "M",
+          "F",
+          "XNA"
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "da9f1546-b7b4-43eb-91db-dfcfbf3ba75c",
+      "kwargs": {
+        "column": "amt_income_total",
+        "min_value": 0.0
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "c784717e-fa02-4748-9ddd-82f7846536dc",
+      "kwargs": {
+        "column": "amt_credit",
+        "min_value": 0.0
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_between"
+    },
+    {
+      "id": "1036709d-44e8-44be-afd5-2d7f10ad5300",
+      "kwargs": {
+        "column": "target",
+        "value_set": [
+          0,
+          1
+        ]
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_column_values_to_be_in_set"
+    },
+    {
+      "id": "405d11f6-9a51-498a-a4f5-089b7023e8b8",
+      "kwargs": {
+        "max_value": 320000,
+        "min_value": 300000
+      },
+      "meta": {},
+      "severity": "critical",
+      "type": "expect_table_row_count_to_be_between"
+    }
+  ],
+  "id": "2163086c-4081-434c-84cf-60bdc9212a48",
+  "meta": {
+    "great_expectations_version": "1.15.0"
+  },
+  "name": "dim_customer_suite",
+  "notes": null
+}
