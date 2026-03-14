@@ -1,7 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col
 
-from common.jdbc import jdbc_url, jdbc_properties
+from spark_jobs.common.jdbc import jdbc_url, jdbc_properties
 
 TABLE_MAP = {
     "application_train.csv": "application_train",
@@ -25,7 +25,7 @@ def main():
         df = (
             spark.read
             .option("header", "true")
-            .option("inferSchema", "true")   # OK for Day 2; we’ll harden later
+            .option("inferSchema", "true")  
             .csv(path)
         )
 
