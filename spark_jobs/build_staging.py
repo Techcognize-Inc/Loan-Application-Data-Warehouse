@@ -1,7 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count, avg, max as fmax, sum as fsum
 
-from common.jdbc import jdbc_url, jdbc_properties
+from spark_jobs.common.jdbc import jdbc_url, jdbc_properties
 
 
 # -----------------------------
