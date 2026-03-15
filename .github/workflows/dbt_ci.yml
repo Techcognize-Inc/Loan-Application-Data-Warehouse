@@ -1,11 +1,14 @@
 name: dbt CI Pipeline
+
 on:
   pull_request:
     branches:
       - main
+
 jobs:
   dbt-test:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:15
@@ -20,6 +23,7 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -30,7 +34,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install dbt-postgres great-expectations psycopg2-binary pandas
+        run: pip install dbt-postgres great-expectations psycopg2-binary pandas sqlalchemy
 
       - name: Create dbt profiles
         run: |
@@ -70,27 +74,27 @@ jobs:
           );
 
           CREATE TABLE IF NOT EXISTS raw.bureau (
-            "SK_ID_BUREAU"               INT,
-            "SK_ID_CURR"                 INT,
-            "CREDIT_ACTIVE"              VARCHAR(20),
-            "CREDIT_CURRENCY"            VARCHAR(20),
-            "DAYS_CREDIT"                INT,
-            "CREDIT_DAY_OVERDUE"         INT,
-            "DAYS_CREDIT_ENDDATE"        FLOAT,
-            "DAYS_ENDDATE_FACT"          FLOAT,
-            "AMT_CREDIT_MAX_OVERDUE"     FLOAT,
-            "CNT_CREDIT_PROLONG"         INT,
-            "AMT_CREDIT_SUM"             FLOAT,
-            "AMT_CREDIT_SUM_DEBT"        FLOAT,
-            "AMT_CREDIT_SUM_LIMIT"       FLOAT,
-            "AMT_CREDIT_SUM_OVERDUE"     FLOAT,
-            "CREDIT_TYPE"                VARCHAR(50),
-            "DAYS_CREDIT_UPDATE"         INT,
-            "AMT_ANNUITY"                FLOAT
+            "SK_ID_BUREAU"           INT,
+            "SK_ID_CURR"             INT,
+            "CREDIT_ACTIVE"          VARCHAR(20),
+            "CREDIT_CURRENCY"        VARCHAR(20),
+            "DAYS_CREDIT"            INT,
+            "CREDIT_DAY_OVERDUE"     INT,
+            "DAYS_CREDIT_ENDDATE"    FLOAT,
+            "DAYS_ENDDATE_FACT"      FLOAT,
+            "AMT_CREDIT_MAX_OVERDUE" FLOAT,
+            "CNT_CREDIT_PROLONG"     INT,
+            "AMT_CREDIT_SUM"         FLOAT,
+            "AMT_CREDIT_SUM_DEBT"    FLOAT,
+            "AMT_CREDIT_SUM_LIMIT"   FLOAT,
+            "AMT_CREDIT_SUM_OVERDUE" FLOAT,
+            "CREDIT_TYPE"            VARCHAR(50),
+            "DAYS_CREDIT_UPDATE"     INT,
+            "AMT_ANNUITY"            FLOAT
           );
 
           INSERT INTO raw.application_train VALUES
-            (1, 0, 'M',   50000, 100000, 5000, 'Secondary',        'Laborers',   'Business Entity Type 3'),
+            (1, 0, 'M',   50000, 100000, 5000, 'Secondary',        'Laborers',    'Business Entity Type 3'),
             (2, 1, 'F',   30000,  80000, 4000, 'Higher education', 'Sales staff', 'School'),
             (3, 0, 'XNA', 45000, 120000, 6000, 'Secondary',        NULL,          'Government');
 
@@ -109,4 +113,6 @@ jobs:
         run: dbt test
 
       - name: Run Great Expectations
+        env:
+          DB_PASSWORD: password
         run: python great_expectations_suite/run_validations.py
