@@ -1,5 +1,10 @@
 pipeline {
-    agent any
+    agent {
+        docker {
+            image 'python:3.11-slim'
+            args '--user root -v /var/run/docker.sock:/var/run/docker.sock'
+        }
+    }
 
     environment {
         VENV_PATH        = "${WORKSPACE}/venv"
@@ -14,9 +19,7 @@ pipeline {
     }
 
     triggers {
-        // Nightly at 2am
         cron('0 2 * * *')
-        // Poll SCM for push to main every 5 mins
         pollSCM('H/5 * * * *')
     }
 
@@ -29,12 +32,27 @@ pipeline {
             }
         }
 
+        stage('Install System Dependencies') {
+            steps {
+                sh '''
+                    apt-get update -qq
+                    apt-get install -y -qq \
+                        gcc \
+                        libpq-dev \
+                        postgresql-client \
+                        docker.io \
+                        default-jdk-headless
+                    echo "✅ System dependencies installed"
+                '''
+            }
+        }
+
         stage('Setup Python') {
             steps {
                 sh '''
                     python3 -m venv ${VENV_PATH}
-                    ${VENV_PATH}/bin/pip install --upgrade pip
-                    ${VENV_PATH}/bin/pip install \
+                    ${VENV_PATH}/bin/pip install --upgrade pip --quiet
+                    ${VENV_PATH}/bin/pip install --quiet \
                         dbt-postgres \
                         great-expectations \
                         psycopg2-binary \
@@ -42,7 +60,7 @@ pipeline {
                         sqlalchemy \
                         pyspark \
                         pytest
-                    ${VENV_PATH}/bin/pip install -e .
+                    echo "✅ Python dependencies installed"
                 '''
             }
         }
