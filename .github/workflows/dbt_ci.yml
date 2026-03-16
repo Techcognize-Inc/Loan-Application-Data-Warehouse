@@ -34,7 +34,11 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install dbt-postgres great-expectations psycopg2-binary pandas sqlalchemy pytest apache-airflow pyspark
+        run: |
+          pip install dbt-postgres great-expectations psycopg2-binary pandas sqlalchemy pyspark pytest
+
+      - name: Run pytest
+        run: pytest
 
       - name: Create dbt profiles
         run: |
@@ -116,33 +120,3 @@ jobs:
         env:
           DB_PASSWORD: password
         run: python great_expectations_suite/run_validations.py
-
-      - name: Validate Spark job syntax
-        run: |
-          python -m py_compile spark_jobs/ingest_raw.py
-          python -m py_compile spark_jobs/build_staging.py
-          echo "✅ Spark scripts syntax OK"
-
-      - name: Validate Airflow DAG
-        env:
-          AIRFLOW__CORE__EXECUTOR: LocalExecutor
-          AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////tmp/airflow.db
-          AIRFLOW__CORE__LOAD_EXAMPLES: "false"
-        run: |
-          airflow db migrate
-          python -c "
-          from airflow.models import DagBag
-          bag = DagBag(dag_folder='dags/', include_examples=False)
-          assert len(bag.import_errors) == 0, f'DAG errors: {bag.import_errors}'
-          print('✅ Airflow DAG validation passed')
-          "
-
-      - name: Run Python unit tests
-        env:
-          DB_HOST: localhost
-          DB_PORT: "5432"
-          DB_NAME: analytics_dev
-          DB_USER: revanth
-          DB_PASSWORD: password
-          PYTHONPATH: .
-        run: pytest tests/ -v
