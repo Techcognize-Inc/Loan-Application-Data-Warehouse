@@ -8,6 +8,6 @@ SELECT
     b.bureau_id                 AS bureau_id,
     SUM(b."AMT_CREDIT_SUM")     AS total_bureau_credit
 FROM {{ ref('stg_applications') }} a
-JOIN {{ ref('stg_bureau') }} b
+LEFT JOIN {{ ref('stg_bureau') }} b
     ON a.customer_id = b.customer_id
 GROUP BY a.customer_id, b.bureau_id
