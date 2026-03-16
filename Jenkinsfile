@@ -4,7 +4,7 @@ pipeline {
     environment {
         VENV_PATH        = "${WORKSPACE}/venv"
         DBT_PROFILES_DIR = "${WORKSPACE}/.dbt"
-        DB_HOST          = "localhost"
+        DB_HOST          = "jenkins-postgres"
         DB_PORT          = "5432"
         DB_NAME          = "analytics_dev"
         DB_USER          = "revanth"
@@ -78,6 +78,63 @@ PROFILE
             }
         }
 
+        stage('Seed Database') {
+            steps {
+                sh '''
+                    PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -U ${DB_USER} -d ${DB_NAME} << SQL
+                    CREATE SCHEMA IF NOT EXISTS raw;
+                    CREATE SCHEMA IF NOT EXISTS staging;
+                    CREATE SCHEMA IF NOT EXISTS warehouse;
+
+                    CREATE TABLE IF NOT EXISTS raw.application_train (
+                        "SK_ID_CURR"          INT,
+                        "TARGET"              INT,
+                        "CODE_GENDER"         VARCHAR(10),
+                        "AMT_INCOME_TOTAL"    FLOAT,
+                        "AMT_CREDIT"          FLOAT,
+                        "AMT_ANNUITY"         FLOAT,
+                        "NAME_EDUCATION_TYPE" VARCHAR(50),
+                        "OCCUPATION_TYPE"     VARCHAR(50),
+                        "ORGANIZATION_TYPE"   VARCHAR(50)
+                    );
+
+                    CREATE TABLE IF NOT EXISTS raw.bureau (
+                        "SK_ID_BUREAU"           INT,
+                        "SK_ID_CURR"             INT,
+                        "CREDIT_ACTIVE"          VARCHAR(20),
+                        "CREDIT_CURRENCY"        VARCHAR(20),
+                        "DAYS_CREDIT"            INT,
+                        "CREDIT_DAY_OVERDUE"     INT,
+                        "DAYS_CREDIT_ENDDATE"    FLOAT,
+                        "DAYS_ENDDATE_FACT"      FLOAT,
+                        "AMT_CREDIT_MAX_OVERDUE" FLOAT,
+                        "CNT_CREDIT_PROLONG"     INT,
+                        "AMT_CREDIT_SUM"         FLOAT,
+                        "AMT_CREDIT_SUM_DEBT"    FLOAT,
+                        "AMT_CREDIT_SUM_LIMIT"   FLOAT,
+                        "AMT_CREDIT_SUM_OVERDUE" FLOAT,
+                        "CREDIT_TYPE"            VARCHAR(50),
+                        "DAYS_CREDIT_UPDATE"     INT,
+                        "AMT_ANNUITY"            FLOAT
+                    );
+
+                    INSERT INTO raw.application_train
+                    SELECT * FROM (VALUES
+                        (1, 0, 'M',   50000, 100000, 5000, 'Secondary',        'Laborers',    'Business Entity Type 3'),
+                        (2, 1, 'F',   30000,  80000, 4000, 'Higher education', 'Sales staff', 'School'),
+                        (3, 0, 'XNA', 45000, 120000, 6000, 'Secondary',        NULL,          'Government')
+                    ) AS v WHERE NOT EXISTS (SELECT 1 FROM raw.application_train);
+
+                    INSERT INTO raw.bureau
+                    SELECT * FROM (VALUES
+                        (1001, 1, 'Active', 'currency 1', -365, 0,    0::FLOAT, NULL::FLOAT,  0::FLOAT, 0, 50000::FLOAT, 10000::FLOAT, 40000::FLOAT, 0::FLOAT, 'Consumer credit', -100, 1000::FLOAT),
+                        (1002, 2, 'Closed', 'currency 2', -730, 0, -365::FLOAT, -300::FLOAT,  0::FLOAT, 1, 30000::FLOAT,     0::FLOAT, 30000::FLOAT, 0::FLOAT, 'Credit card',     -200,  500::FLOAT)
+                    ) AS v WHERE NOT EXISTS (SELECT 1 FROM raw.bureau);
+SQL
+                '''
+            }
+        }
+
         stage('dbt - Install Packages') {
             steps {
                 sh '${VENV_PATH}/bin/dbt deps --profiles-dir ${DBT_PROFILES_DIR}'
@@ -109,6 +166,7 @@ PROFILE
         stage('Great Expectations') {
             steps {
                 sh '''
+                    export DB_HOST=${DB_HOST}
                     export DB_PASSWORD=${DB_PASSWORD}
                     ${VENV_PATH}/bin/python great_expectations_suite/run_validations.py
                 '''
@@ -151,11 +209,11 @@ PROFILE
                     docker rm loan-dw-app || true
                     docker run -d \
                         --name loan-dw-app \
+                        --network jenkins-network \
                         --env DB_HOST=${DB_HOST} \
                         --env DB_NAME=${DB_NAME} \
                         --env DB_USER=${DB_USER} \
                         --env DB_PASSWORD=${DB_PASSWORD} \
-                        -p 8080:8080 \
                         ${DOCKER_IMAGE}:${DOCKER_TAG}
                     echo "✅ Deployed successfully"
                 '''
