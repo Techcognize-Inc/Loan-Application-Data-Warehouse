@@ -38,6 +38,13 @@ jobs:
           pip install dbt-postgres great-expectations psycopg2-binary pandas sqlalchemy pyspark pytest
           pip install -e .
 
+      - name: Debug module path
+        run: |
+          echo "PYTHONPATH: $PYTHONPATH"
+          echo "Working dir: $(pwd)"
+          ls -la
+          python -c "import spark_jobs.ingest_raw; print('spark_jobs import OK')"
+
       - name: Run pytest
         run: pytest
 
