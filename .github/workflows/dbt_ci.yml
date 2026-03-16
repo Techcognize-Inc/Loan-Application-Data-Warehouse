@@ -34,7 +34,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install dbt-postgres great-expectations psycopg2-binary pandas sqlalchemy pytest apache-airflow
+        run: pip install dbt-postgres great-expectations psycopg2-binary pandas sqlalchemy pytest apache-airflow pyspark
 
       - name: Create dbt profiles
         run: |
