@@ -1,10 +1,5 @@
 pipeline {
-    agent {
-        docker {
-            image 'python:3.11-slim'
-            args '--user root -v /var/run/docker.sock:/var/run/docker.sock'
-        }
-    }
+    agent any
 
     environment {
         VENV_PATH        = "${WORKSPACE}/venv"
@@ -32,27 +27,12 @@ pipeline {
             }
         }
 
-        stage('Install System Dependencies') {
-            steps {
-                sh '''
-                    apt-get update -qq
-                    apt-get install -y -qq \
-                        gcc \
-                        libpq-dev \
-                        postgresql-client \
-                        docker.io \
-                        default-jdk-headless
-                    echo "✅ System dependencies installed"
-                '''
-            }
-        }
-
         stage('Setup Python') {
             steps {
                 sh '''
                     python3 -m venv ${VENV_PATH}
-                    ${VENV_PATH}/bin/pip install --upgrade pip --quiet
-                    ${VENV_PATH}/bin/pip install --quiet \
+                    ${VENV_PATH}/bin/pip install --upgrade pip
+                    ${VENV_PATH}/bin/pip install \
                         dbt-postgres \
                         great-expectations \
                         psycopg2-binary \
@@ -60,21 +40,16 @@ pipeline {
                         sqlalchemy \
                         pyspark \
                         pytest
-                    echo "✅ Python dependencies installed"
+                    ${VENV_PATH}/bin/pip install -e .
                 '''
             }
         }
 
         stage('Run Pytest') {
             steps {
-                sh '''
-                    ${VENV_PATH}/bin/pytest --tb=short -q
-                '''
+                sh '${VENV_PATH}/bin/pytest --tb=short -q'
             }
             post {
-                always {
-                    junit allowEmptyResults: true, testResults: '**/test-results/*.xml'
-                }
                 failure {
                     echo "❌ Pytest failed — aborting pipeline"
                 }
