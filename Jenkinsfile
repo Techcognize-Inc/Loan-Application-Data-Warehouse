@@ -11,6 +11,9 @@ pipeline {
         DB_PASSWORD      = credentials('postgres-password')
         DOCKER_IMAGE     = "loan-dw"
         DOCKER_TAG       = "${BUILD_NUMBER}"
+        AIRFLOW_URL      = "http://host.docker.internal:8080"
+        AIRFLOW_USER     = "admin"
+        AIRFLOW_PASSWORD = credentials('airflow-password')
     }
 
     triggers {
@@ -191,6 +194,40 @@ SQL
                     docker tag ${DOCKER_IMAGE}:${DOCKER_TAG} ${DOCKER_IMAGE}:latest
                     echo "✅ Docker image built: ${DOCKER_IMAGE}:${DOCKER_TAG}"
                 '''
+            }
+        }
+
+        stage('Trigger Airflow DAG') {
+            when {
+                anyOf {
+                    branch 'main'
+                    triggeredBy 'UserIdCause'
+                }
+            }
+            steps {
+                sh '''
+                    echo "🚀 Triggering Airflow DAG: loan_warehouse_pipeline..."
+                    RESPONSE=$(curl -s -o /tmp/airflow_response.json -w "%{http_code}" \
+                        -X POST "${AIRFLOW_URL}/api/v1/dags/loan_warehouse_pipeline/dagRuns" \
+                        -H "Content-Type: application/json" \
+                        -u "${AIRFLOW_USER}:${AIRFLOW_PASSWORD}" \
+                        -d '{"conf": {}, "note": "Triggered by Jenkins build #'"${BUILD_NUMBER}"'"}')
+
+                    echo "Airflow API response code: ${RESPONSE}"
+                    cat /tmp/airflow_response.json
+
+                    if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 200 ]; then
+                        echo "✅ Airflow DAG triggered successfully"
+                    else
+                        echo "❌ Failed to trigger Airflow DAG (HTTP ${RESPONSE})"
+                        exit 1
+                    fi
+                '''
+            }
+            post {
+                failure {
+                    echo "❌ Failed to trigger Airflow DAG"
+                }
             }
         }
 
