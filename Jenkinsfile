@@ -11,7 +11,7 @@ pipeline {
         DB_PASSWORD      = credentials('postgres-password')
         DOCKER_IMAGE     = "loan-dw"
         DOCKER_TAG       = "${BUILD_NUMBER}"
-        AIRFLOW_URL      = "http://host.docker.internal:8080"
+        AIRFLOW_URL      = "http://host.docker.internal:9090"
         AIRFLOW_USER     = "admin"
         AIRFLOW_PASSWORD = credentials('airflow-password')
     }
@@ -206,17 +206,23 @@ SQL
             }
             steps {
                 sh '''
+                    echo "🔑 Getting Airflow token..."
+                    TOKEN=$(curl -s -X POST "${AIRFLOW_URL}/auth/token" \
+                        -H "Content-Type: application/json" \
+                        -d "{\\"username\\": \\"${AIRFLOW_USER}\\", \\"password\\": \\"${AIRFLOW_PASSWORD}\\"}" \
+                        | python3 -c "import sys,json; print(json.load(sys.stdin)[\'access_token\'])")
+
                     echo "🚀 Triggering Airflow DAG: loan_warehouse_pipeline..."
                     RESPONSE=$(curl -s -o /tmp/airflow_response.json -w "%{http_code}" \
-                        -X POST "${AIRFLOW_URL}/api/v1/dags/loan_warehouse_pipeline/dagRuns" \
+                        -X POST "${AIRFLOW_URL}/api/v2/dags/loan_warehouse_pipeline/dagRuns" \
                         -H "Content-Type: application/json" \
-                        -u "${AIRFLOW_USER}:${AIRFLOW_PASSWORD}" \
-                        -d '{"conf": {}, "note": "Triggered by Jenkins build #'"${BUILD_NUMBER}"'"}')
+                        -H "Authorization: Bearer ${TOKEN}" \
+                        -d "{\\"logical_date\\": null, \\"conf\\": {}, \\"note\\": \\"Triggered by Jenkins build #${BUILD_NUMBER}\\"}")
 
                     echo "Airflow API response code: ${RESPONSE}"
                     cat /tmp/airflow_response.json
 
-                    if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 200 ]; then
+                    if [ "$RESPONSE" -eq 200 ]; then
                         echo "✅ Airflow DAG triggered successfully"
                     else
                         echo "❌ Failed to trigger Airflow DAG (HTTP ${RESPONSE})"
