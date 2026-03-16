@@ -36,10 +36,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install dbt-postgres great-expectations psycopg2-binary pandas sqlalchemy pyspark pytest
+          pip install -e .
 
       - name: Run pytest
-        env:
-          PYTHONPATH: ${{ github.workspace }}
         run: pytest
 
       - name: Create dbt profiles
