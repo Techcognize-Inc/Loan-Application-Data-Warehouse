@@ -1,6 +1,5 @@
 pipeline {
     agent any
-
     environment {
         VENV_PATH        = "${WORKSPACE}/venv"
         DBT_PROFILES_DIR = "${WORKSPACE}/.dbt"
@@ -15,21 +14,17 @@ pipeline {
         AIRFLOW_USER     = "admin"
         AIRFLOW_PASSWORD = credentials('airflow-password')
     }
-
     triggers {
         cron('0 2 * * *')
         pollSCM('H/5 * * * *')
     }
-
     stages {
-
         stage('Checkout') {
             steps {
                 checkout scm
                 echo "✅ Checked out branch: ${env.BRANCH_NAME}"
             }
         }
-
         stage('Setup Python') {
             steps {
                 sh '''
@@ -47,7 +42,6 @@ pipeline {
                 '''
             }
         }
-
         stage('Run Pytest') {
             steps {
                 sh '${VENV_PATH}/bin/pytest --tb=short -q'
@@ -58,7 +52,6 @@ pipeline {
                 }
             }
         }
-
         stage('Setup dbt Profiles') {
             steps {
                 sh '''
@@ -80,7 +73,6 @@ PROFILE
                 '''
             }
         }
-
         stage('Seed Database') {
             steps {
                 sh '''
@@ -88,7 +80,6 @@ PROFILE
                     CREATE SCHEMA IF NOT EXISTS raw;
                     CREATE SCHEMA IF NOT EXISTS staging;
                     CREATE SCHEMA IF NOT EXISTS warehouse;
-
                     CREATE TABLE IF NOT EXISTS raw.application_train (
                         "SK_ID_CURR"          INT,
                         "TARGET"              INT,
@@ -100,7 +91,6 @@ PROFILE
                         "OCCUPATION_TYPE"     VARCHAR(50),
                         "ORGANIZATION_TYPE"   VARCHAR(50)
                     );
-
                     CREATE TABLE IF NOT EXISTS raw.bureau (
                         "SK_ID_BUREAU"           INT,
                         "SK_ID_CURR"             INT,
@@ -120,14 +110,12 @@ PROFILE
                         "DAYS_CREDIT_UPDATE"     INT,
                         "AMT_ANNUITY"            FLOAT
                     );
-
                     INSERT INTO raw.application_train
                     SELECT * FROM (VALUES
                         (1, 0, 'M',   50000, 100000, 5000, 'Secondary',        'Laborers',    'Business Entity Type 3'),
                         (2, 1, 'F',   30000,  80000, 4000, 'Higher education', 'Sales staff', 'School'),
                         (3, 0, 'XNA', 45000, 120000, 6000, 'Secondary',        NULL,          'Government')
                     ) AS v WHERE NOT EXISTS (SELECT 1 FROM raw.application_train);
-
                     INSERT INTO raw.bureau
                     SELECT * FROM (VALUES
                         (1001, 1, 'Active', 'currency 1', -365, 0,    0::FLOAT, NULL::FLOAT,  0::FLOAT, 0, 50000::FLOAT, 10000::FLOAT, 40000::FLOAT, 0::FLOAT, 'Consumer credit', -100, 1000::FLOAT),
@@ -137,13 +125,11 @@ SQL
                 '''
             }
         }
-
         stage('dbt - Install Packages') {
             steps {
                 sh '${VENV_PATH}/bin/dbt deps --profiles-dir ${DBT_PROFILES_DIR}'
             }
         }
-
         stage('dbt - Run Models') {
             steps {
                 sh '${VENV_PATH}/bin/dbt run --profiles-dir ${DBT_PROFILES_DIR}'
@@ -154,7 +140,6 @@ SQL
                 }
             }
         }
-
         stage('dbt - Test Models') {
             steps {
                 sh '${VENV_PATH}/bin/dbt test --profiles-dir ${DBT_PROFILES_DIR}'
@@ -165,7 +150,6 @@ SQL
                 }
             }
         }
-
         stage('Great Expectations') {
             steps {
                 sh '''
@@ -180,7 +164,6 @@ SQL
                 }
             }
         }
-
         stage('Build Docker Image') {
             when {
                 anyOf {
@@ -196,7 +179,6 @@ SQL
                 '''
             }
         }
-
         stage('Trigger Airflow DAG') {
             when {
                 anyOf {
@@ -205,43 +187,38 @@ SQL
                 }
             }
             steps {
-                script {
-                    def airflowUser = env.AIRFLOW_USER
-                    def airflowPass = env.AIRFLOW_PASSWORD
-                    def airflowUrl  = env.AIRFLOW_URL
-                    def buildNum    = env.BUILD_NUMBER
+                withCredentials([string(credentialsId: 'airflow-password', variable: 'AF_PASS')]) {
+                    sh '''
+                        python3 - << PYEOF
+import urllib.request, json, os
 
-                    sh """
-                        echo '🔑 Getting Airflow token...'
-                        python3 -c \"
-import urllib.request, json, sys
+url  = "http://192.168.1.215:9090"
+user = "admin"
+pw   = os.environ["AF_PASS"]
 
 # Get token
-token_data = json.dumps({'username': '${airflowUser}', 'password': '${airflowPass}'}).encode()
 token_req = urllib.request.Request(
-    '${airflowUrl}/auth/token',
-    data=token_data,
-    headers={'Content-Type': 'application/json'},
-    method='POST'
+    url + "/auth/token",
+    data=json.dumps({"username": user, "password": pw}).encode(),
+    headers={"Content-Type": "application/json"},
+    method="POST"
 )
 with urllib.request.urlopen(token_req) as r:
-    token = json.loads(r.read())['access_token']
-
-print('✅ Got token')
+    token = json.loads(r.read())["access_token"]
+print("Got token successfully")
 
 # Trigger DAG
-dag_data = json.dumps({'logical_date': None, 'conf': {}, 'note': 'Triggered by Jenkins build #${buildNum}'}).encode()
 dag_req = urllib.request.Request(
-    '${airflowUrl}/api/v2/dags/loan_warehouse_pipeline/dagRuns',
-    data=dag_data,
-    headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
-    method='POST'
+    url + "/api/v2/dags/loan_warehouse_pipeline/dagRuns",
+    data=json.dumps({"logical_date": None, "conf": {}, "note": "Triggered by Jenkins"}).encode(),
+    headers={"Content-Type": "application/json", "Authorization": "Bearer " + token},
+    method="POST"
 )
 with urllib.request.urlopen(dag_req) as r:
     result = json.loads(r.read())
-    print('✅ Airflow DAG triggered:', result['dag_run_id'])
-\"
-                    """
+    print("Airflow DAG triggered successfully:", result["dag_run_id"])
+PYEOF
+                    '''
                 }
             }
             post {
@@ -250,7 +227,6 @@ with urllib.request.urlopen(dag_req) as r:
                 }
             }
         }
-
         stage('Deploy') {
             when {
                 allOf {
@@ -277,7 +253,6 @@ with urllib.request.urlopen(dag_req) as r:
             }
         }
     }
-
     post {
         success {
             echo "🎉 Pipeline completed successfully!"
