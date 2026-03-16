@@ -140,8 +140,9 @@ jobs:
       - name: Run Python unit tests
         env:
           DB_HOST: localhost
-          DB_PORT: 5432
+          DB_PORT: "5432"
           DB_NAME: analytics_dev
           DB_USER: revanth
           DB_PASSWORD: password
+          PYTHONPATH: .
         run: pytest tests/ -v
