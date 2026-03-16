@@ -205,30 +205,44 @@ SQL
                 }
             }
             steps {
-                sh '''
-                    echo "🔑 Getting Airflow token..."
-                    TOKEN=$(curl -s -X POST "${AIRFLOW_URL}/auth/token" \
-                        -H "Content-Type: application/json" \
-                        -d "{\\"username\\": \\"${AIRFLOW_USER}\\", \\"password\\": \\"${AIRFLOW_PASSWORD}\\"}" \
-                        | python3 -c "import sys,json; print(json.load(sys.stdin)[\'access_token\'])")
+                script {
+                    def airflowUser = env.AIRFLOW_USER
+                    def airflowPass = env.AIRFLOW_PASSWORD
+                    def airflowUrl  = env.AIRFLOW_URL
+                    def buildNum    = env.BUILD_NUMBER
 
-                    echo "🚀 Triggering Airflow DAG: loan_warehouse_pipeline..."
-                    RESPONSE=$(curl -s -o /tmp/airflow_response.json -w "%{http_code}" \
-                        -X POST "${AIRFLOW_URL}/api/v2/dags/loan_warehouse_pipeline/dagRuns" \
-                        -H "Content-Type: application/json" \
-                        -H "Authorization: Bearer ${TOKEN}" \
-                        -d "{\\"logical_date\\": null, \\"conf\\": {}, \\"note\\": \\"Triggered by Jenkins build #${BUILD_NUMBER}\\"}")
+                    sh """
+                        echo '🔑 Getting Airflow token...'
+                        python3 -c \"
+import urllib.request, json, sys
 
-                    echo "Airflow API response code: ${RESPONSE}"
-                    cat /tmp/airflow_response.json
+# Get token
+token_data = json.dumps({'username': '${airflowUser}', 'password': '${airflowPass}'}).encode()
+token_req = urllib.request.Request(
+    '${airflowUrl}/auth/token',
+    data=token_data,
+    headers={'Content-Type': 'application/json'},
+    method='POST'
+)
+with urllib.request.urlopen(token_req) as r:
+    token = json.loads(r.read())['access_token']
 
-                    if [ "$RESPONSE" -eq 200 ]; then
-                        echo "✅ Airflow DAG triggered successfully"
-                    else
-                        echo "❌ Failed to trigger Airflow DAG (HTTP ${RESPONSE})"
-                        exit 1
-                    fi
-                '''
+print('✅ Got token')
+
+# Trigger DAG
+dag_data = json.dumps({'logical_date': None, 'conf': {}, 'note': 'Triggered by Jenkins build #${buildNum}'}).encode()
+dag_req = urllib.request.Request(
+    '${airflowUrl}/api/v2/dags/loan_warehouse_pipeline/dagRuns',
+    data=dag_data,
+    headers={'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token},
+    method='POST'
+)
+with urllib.request.urlopen(dag_req) as r:
+    result = json.loads(r.read())
+    print('✅ Airflow DAG triggered:', result['dag_run_id'])
+\"
+                    """
+                }
             }
             post {
                 failure {
