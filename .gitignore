@@ -87,16 +87,13 @@ cython_debug/
 
 # ── dbt ───────────────────────────────────────────────────────────────────────
 target/
-/target/
 logs/
-/logs/
 dbt_packages/
 profiles.yml
 # NOTE: macros/ should be committed — do NOT ignore it
 
 # ── Raw Data — too large for GitHub ───────────────────────────────────────────
 data/
-data/raw/
 *.csv
 
 # ── Great Expectations ────────────────────────────────────────────────────────
@@ -104,7 +101,6 @@ gx/uncommitted/
 great_expectations/uncommitted/
 
 # ── Airflow ───────────────────────────────────────────────────────────────────
-airflow/
 *.db
 airflow.cfg
 airflow.cfg.bak

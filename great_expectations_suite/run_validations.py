@@ -17,9 +17,9 @@ import os
 
 DB_PARAMS = {
     "host":     os.getenv("DB_HOST", "localhost"),
-    "port":     int(os.getenv("DB_PORT", 5432)),
-    "dbname":   os.getenv("DB_NAME", "analytics_dev"),
-    "user":     os.getenv("DB_USER", "revanth"),
+    "port":     int(os.getenv("DB_PORT", 5433)),
+    "dbname":   os.getenv("DB_NAME", "bankingdb"),
+    "user":     os.getenv("DB_USER", "postgres"),
     "password": os.getenv("DB_PASSWORD", "password"),
 }
 
