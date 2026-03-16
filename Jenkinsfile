@@ -11,7 +11,7 @@ pipeline {
         DB_PASSWORD      = credentials('postgres-password')
         DOCKER_IMAGE     = "loan-dw"
         DOCKER_TAG       = "${BUILD_NUMBER}"
-        AIRFLOW_URL      = "http://host.docker.internal:9090"
+        AIRFLOW_URL      = "http://192.168.1.215:9090"
         AIRFLOW_USER     = "admin"
         AIRFLOW_PASSWORD = credentials('airflow-password')
     }
