@@ -10,7 +10,7 @@ pipeline {
         DB_PASSWORD      = credentials('postgres-password')
         DOCKER_IMAGE     = "loan-dw"
         DOCKER_TAG       = "${BUILD_NUMBER}"
-        AIRFLOW_URL      = "http://192.168.1.215:9090"
+        AIRFLOW_URL      = "http://airflow-webserver:8080"
         AIRFLOW_USER     = "admin"
         AIRFLOW_PASSWORD = credentials('airflow-password')
     }
@@ -25,6 +25,7 @@ pipeline {
                 echo "✅ Checked out branch: ${env.BRANCH_NAME}"
             }
         }
+
         stage('Setup Python') {
             steps {
                 sh '''
@@ -42,6 +43,7 @@ pipeline {
                 '''
             }
         }
+
         stage('Run Pytest') {
             steps {
                 sh '${VENV_PATH}/bin/pytest --tb=short -q'
@@ -52,6 +54,7 @@ pipeline {
                 }
             }
         }
+
         stage('Setup dbt Profiles') {
             steps {
                 sh '''
@@ -73,6 +76,7 @@ PROFILE
                 '''
             }
         }
+
         stage('Seed Database') {
             steps {
                 sh '''
@@ -125,11 +129,13 @@ SQL
                 '''
             }
         }
+
         stage('dbt - Install Packages') {
             steps {
                 sh '${VENV_PATH}/bin/dbt deps --profiles-dir ${DBT_PROFILES_DIR}'
             }
         }
+
         stage('dbt - Run Models') {
             steps {
                 sh '${VENV_PATH}/bin/dbt run --profiles-dir ${DBT_PROFILES_DIR}'
@@ -140,6 +146,7 @@ SQL
                 }
             }
         }
+
         stage('dbt - Test Models') {
             steps {
                 sh '${VENV_PATH}/bin/dbt test --profiles-dir ${DBT_PROFILES_DIR}'
@@ -150,6 +157,7 @@ SQL
                 }
             }
         }
+
         stage('Great Expectations') {
             steps {
                 sh '''
@@ -164,6 +172,7 @@ SQL
                 }
             }
         }
+
         stage('Build Docker Image') {
             when {
                 anyOf {
@@ -179,6 +188,7 @@ SQL
                 '''
             }
         }
+
         stage('Trigger Airflow DAG') {
             when {
                 anyOf {
@@ -190,33 +200,69 @@ SQL
                 withCredentials([string(credentialsId: 'airflow-password', variable: 'AF_PASS')]) {
                     sh '''
                         python3 - << PYEOF
-import urllib.request, json, os
+import urllib.request
+import urllib.error
+import json
+import os
+import time
 
-url  = "http://192.168.1.215:9090"
-user = "admin"
+url  = os.environ.get("AIRFLOW_URL", "http://airflow-webserver:8080")
+user = os.environ.get("AIRFLOW_USER", "admin")
 pw   = os.environ["AF_PASS"]
 
-# Get token
+def wait_for_airflow(url, retries=10, delay=6):
+    health_url = url + "/api/v2/monitor/health"
+    for attempt in range(1, retries + 1):
+        try:
+            with urllib.request.urlopen(health_url, timeout=5) as r:
+                data = json.loads(r.read())
+                if data.get("metadatabase", {}).get("status") == "healthy" and data.get("scheduler", {}).get("status") == "healthy":
+                    print(f"Airflow is healthy (attempt {attempt})")
+                    return True
+                print(f"Airflow not ready yet (attempt {attempt}), retrying in {delay}s...")
+        except Exception as e:
+            print(f"Airflow unreachable (attempt {attempt}): {e}, retrying in {delay}s...")
+        time.sleep(delay)
+    raise Exception(f"Airflow did not become healthy after {retries} attempts")
+
+wait_for_airflow(url)
+
+# Step 1: Get token (Airflow 3 SimpleAuthManager endpoint)
 token_req = urllib.request.Request(
     url + "/auth/token",
     data=json.dumps({"username": user, "password": pw}).encode(),
     headers={"Content-Type": "application/json"},
     method="POST"
 )
-with urllib.request.urlopen(token_req) as r:
-    token = json.loads(r.read())["access_token"]
-print("Got token successfully")
+try:
+    with urllib.request.urlopen(token_req) as r:
+        token = json.loads(r.read())["access_token"]
+    print("Auth token obtained")
+except urllib.error.HTTPError as e:
+    body = e.read().decode()
+    raise Exception(f"Auth failed ({e.code}): {body}")
 
-# Trigger DAG
+# Step 2: Trigger DAG
 dag_req = urllib.request.Request(
     url + "/api/v2/dags/loan_warehouse_pipeline/dagRuns",
-    data=json.dumps({"logical_date": None, "conf": {}, "note": "Triggered by Jenkins"}).encode(),
-    headers={"Content-Type": "application/json", "Authorization": "Bearer " + token},
+    data=json.dumps({
+        "logical_date": None,
+        "conf": {},
+        "note": f"Triggered by Jenkins build {os.environ.get('BUILD_NUMBER', 'unknown')}"
+    }).encode(),
+    headers={
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + token
+    },
     method="POST"
 )
-with urllib.request.urlopen(dag_req) as r:
-    result = json.loads(r.read())
-    print("Airflow DAG triggered successfully:", result["dag_run_id"])
+try:
+    with urllib.request.urlopen(dag_req) as r:
+        result = json.loads(r.read())
+        print(f"Airflow DAG triggered: {result['dag_run_id']}")
+except urllib.error.HTTPError as e:
+    body = e.read().decode()
+    raise Exception(f"DAG trigger failed ({e.code}): {body}")
 PYEOF
                     '''
                 }
@@ -227,6 +273,7 @@ PYEOF
                 }
             }
         }
+
         stage('Deploy') {
             when {
                 allOf {
@@ -253,6 +300,7 @@ PYEOF
             }
         }
     }
+
     post {
         success {
             echo "🎉 Pipeline completed successfully!"
