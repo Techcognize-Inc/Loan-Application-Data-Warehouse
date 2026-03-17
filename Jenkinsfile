@@ -2,12 +2,6 @@ pipeline {
     agent any
 
     stages {
-        stage('Checkout') {
-            steps {
-                echo 'Using checked out project code'
-            }
-        }
-
         stage('Validate Project Files') {
             steps {
                 sh 'test -f scripts/run_ingest.sh'
@@ -18,21 +12,17 @@ pipeline {
             }
         }
 
-        stage('Run dbt Tests') {
+        stage('Trigger Airflow DAG') {
             steps {
-                sh 'docker exec de3-airflow-webserver bash -c "cd /opt/airflow/project && dbt test --profiles-dir /opt/airflow/.dbt"'
-            }
-        }
-
-        stage('Run Great Expectations') {
-            steps {
-                sh 'docker exec de3-airflow-webserver bash -c "cd /opt/airflow/project && python great_expectations_suite/run_validations.py"'
+                sh """
+                docker exec de3-airflow-webserver airflow dags trigger loan_warehouse_dag
+                """
             }
         }
 
         stage('Success') {
             steps {
-                echo 'Jenkins pipeline completed successfully.'
+                echo 'Jenkins pipeline completed successfully and Airflow DAG was triggered.'
             }
         }
     }
