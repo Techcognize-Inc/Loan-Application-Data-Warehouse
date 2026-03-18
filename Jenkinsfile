@@ -10,9 +10,6 @@ pipeline {
         DB_PASSWORD      = credentials('postgres-password')
         DOCKER_IMAGE     = "loan-dw"
         DOCKER_TAG       = "${BUILD_NUMBER}"
-        AIRFLOW_URL      = "http://airflow-webserver:8080"
-        AIRFLOW_USER     = "admin"
-        AIRFLOW_PASSWORD = credentials('airflow-password')
     }
     triggers {
         cron('0 2 * * *')
@@ -197,80 +194,8 @@ SQL
                 }
             }
             steps {
-                withCredentials([string(credentialsId: 'airflow-password', variable: 'AF_PASS')]) {
-                    sh '''
-                        python3 - << PYEOF
-import urllib.request
-import urllib.error
-import json
-import os
-import time
-
-url  = os.environ.get("AIRFLOW_URL", "http://airflow-webserver:8080")
-user = os.environ.get("AIRFLOW_USER", "admin")
-pw   = os.environ["AF_PASS"]
-
-def wait_for_airflow(url, retries=10, delay=6):
-    health_url = url + "/api/v2/monitor/health"
-    for attempt in range(1, retries + 1):
-        try:
-            with urllib.request.urlopen(health_url, timeout=5) as r:
-                data = json.loads(r.read())
-                if data.get("metadatabase", {}).get("status") == "healthy" and data.get("scheduler", {}).get("status") == "healthy":
-                    print(f"Airflow is healthy (attempt {attempt})")
-                    return True
-                print(f"Airflow not ready yet (attempt {attempt}), retrying in {delay}s...")
-        except Exception as e:
-            print(f"Airflow unreachable (attempt {attempt}): {e}, retrying in {delay}s...")
-        time.sleep(delay)
-    raise Exception(f"Airflow did not become healthy after {retries} attempts")
-
-wait_for_airflow(url)
-
-# Step 1: Get token (Airflow 3 SimpleAuthManager endpoint)
-token_req = urllib.request.Request(
-    url + "/auth/token",
-    data=json.dumps({"username": user, "password": pw}).encode(),
-    headers={"Content-Type": "application/json"},
-    method="POST"
-)
-try:
-    with urllib.request.urlopen(token_req) as r:
-        token = json.loads(r.read())["access_token"]
-    print("Auth token obtained")
-except urllib.error.HTTPError as e:
-    body = e.read().decode()
-    raise Exception(f"Auth failed ({e.code}): {body}")
-
-# Step 2: Trigger DAG
-dag_req = urllib.request.Request(
-    url + "/api/v2/dags/loan_warehouse_pipeline/dagRuns",
-    data=json.dumps({
-        "logical_date": None,
-        "conf": {},
-        "note": f"Triggered by Jenkins build {os.environ.get('BUILD_NUMBER', 'unknown')}"
-    }).encode(),
-    headers={
-        "Content-Type": "application/json",
-        "Authorization": "Bearer " + token
-    },
-    method="POST"
-)
-try:
-    with urllib.request.urlopen(dag_req) as r:
-        result = json.loads(r.read())
-        print(f"Airflow DAG triggered: {result['dag_run_id']}")
-except urllib.error.HTTPError as e:
-    body = e.read().decode()
-    raise Exception(f"DAG trigger failed ({e.code}): {body}")
-PYEOF
-                    '''
-                }
-            }
-            post {
-                failure {
-                    echo "❌ Failed to trigger Airflow DAG"
-                }
+                echo "✅ Airflow is managed separately via local terminal — skipping automated trigger"
+                echo "ℹ️  To run the DAG manually: airflow standalone (port 9090) then trigger loan_warehouse_pipeline"
             }
         }
 
