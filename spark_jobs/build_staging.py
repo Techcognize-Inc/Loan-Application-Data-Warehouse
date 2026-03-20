@@ -1,19 +1,28 @@
 import os
 
+# SparkSession = main Spark entry point
 from pyspark.sql import SparkSession
+
+# Import aggregation / column functions used in transformations
 from pyspark.sql.functions import col, count, avg, max as fmax, sum as fsum
 
+# JDBC helpers to connect to Postgres
 from spark_jobs.common.jdbc import jdbc_url, jdbc_properties
 
 
 # -----------------------------
 # Helpers
 # -----------------------------
+
 def quote_ident(name: str) -> str:
+    # Adds double quotes around column names for Postgres safety
+    # Example: SK_ID_CURR -> "SK_ID_CURR"
     return f'"{name}"'
 
 
 def table_columns(spark: SparkSession, table: str) -> list[str]:
+    # Reads table metadata and returns the list of columns in the table
+    # Used to safely check whether expected columns actually exist
     return spark.read.jdbc(
         url=jdbc_url(),
         table=table,
@@ -22,6 +31,8 @@ def table_columns(spark: SparkSession, table: str) -> list[str]:
 
 
 def get_bounds(spark: SparkSession, table: str, partition_col: str) -> tuple[int, int]:
+    # Finds MIN and MAX value of a partition column
+    # This is used for partitioned JDBC reads
     q = f'(SELECT MIN({quote_ident(partition_col)}) AS lo, MAX({quote_ident(partition_col)}) AS hi FROM {table}) t'
     row = spark.read.jdbc(
         url=jdbc_url(),
@@ -32,6 +43,7 @@ def get_bounds(spark: SparkSession, table: str, partition_col: str) -> tuple[int
     lo = row["lo"]
     hi = row["hi"]
 
+    # If no values exist, return safe default bounds
     if lo is None or hi is None:
         return 0, 1
 
@@ -43,16 +55,19 @@ def read_table_partitioned(
     table: str,
     preferred_partition_cols: list[str],
     columns: list[str],
-    num_partitions: int = 16,
+    num_partitions: int = 8,
 ):
+    # Get actual columns present in the table
     cols_in_table = table_columns(spark, table)
 
+    # Try to choose the first valid partition column from preferred list
     partition_col = None
     for c in preferred_partition_cols:
         if c in cols_in_table:
             partition_col = c
             break
 
+    # If no partition column is found, fall back to normal JDBC read
     if partition_col is None:
         keep = [c for c in columns if c in cols_in_table]
         return (
@@ -63,13 +78,19 @@ def read_table_partitioned(
             ).select(*keep)
         )
 
+    # Select required columns plus partition column
     select_cols = list(dict.fromkeys(columns + [partition_col]))
     select_cols = [c for c in select_cols if c in cols_in_table]
     quoted_cols = ", ".join([quote_ident(c) for c in select_cols])
 
+    # Build subquery so Spark reads only the required columns
     subquery = f'(SELECT {quoted_cols} FROM {table}) t'
+
+    # Get min/max bounds for partitioned read
     lo, hi = get_bounds(spark, table, partition_col)
 
+    # Partitioned JDBC read:
+    # Spark splits the read into multiple chunks using partitionColumn
     return (
         spark.read.format("jdbc")
         .option("url", jdbc_url())
@@ -86,10 +107,10 @@ def read_table_partitioned(
 
 
 def write_table_jdbc(df, table_name, mode="overwrite"):
-    
+    # Generic JDBC write helper
     (
         df.write
-        .mode(mode)
+        .mode(mode)               # overwrite by default
         .option("batchsize", 5000)
         .jdbc(
             url=jdbc_url(),
@@ -103,19 +124,25 @@ def write_table_jdbc(df, table_name, mode="overwrite"):
 # Main
 # -----------------------------
 def main():
+    # Build Spark session for staging job
     builder = (
         SparkSession.builder
         .appName("de3-build-staging")
         .config("spark.sql.adaptive.enabled", "true")
     )
 
+    # Use SPARK_MASTER if available
     spark_master = os.getenv("SPARK_MASTER")
     if spark_master:
         builder = builder.master(spark_master)
 
+    # Create Spark session
     spark = builder.getOrCreate()
 
-    # Base application table
+    # --------------------------------------------------
+    # 1. Read base application table
+    # This is the main/base dataset for staging
+    # --------------------------------------------------
     app = read_table_partitioned(
         spark,
         table="raw.application_train",
@@ -133,10 +160,13 @@ def main():
             "AMT_ANNUITY",
             "AMT_GOODS_PRICE",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
-    # Bureau
+    # --------------------------------------------------
+    # 2. Read bureau data
+    # Bureau is one-to-many with customer, so later we aggregate it
+    # --------------------------------------------------
     bureau = read_table_partitioned(
         spark,
         table="raw.bureau",
@@ -147,21 +177,24 @@ def main():
             "AMT_CREDIT_SUM",
             "CREDIT_DAY_OVERDUE",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
+    # Aggregate bureau records to customer level
     bureau_agg = (
         bureau.groupBy("SK_ID_CURR")
         .agg(
-            count("*").alias("bureau_records_cnt"),
-            avg(col("AMT_CREDIT_SUM")).alias("bureau_avg_credit_sum"),
-            fmax(col("AMT_CREDIT_SUM")).alias("bureau_max_credit_sum"),
-            avg(col("CREDIT_DAY_OVERDUE")).alias("bureau_avg_days_overdue"),
-            fmax(col("CREDIT_DAY_OVERDUE")).alias("bureau_max_days_overdue"),
+            count("*").alias("bureau_records_cnt"),                        # total bureau records
+            avg(col("AMT_CREDIT_SUM")).alias("bureau_avg_credit_sum"),     # avg credit sum
+            fmax(col("AMT_CREDIT_SUM")).alias("bureau_max_credit_sum"),    # max credit sum
+            avg(col("CREDIT_DAY_OVERDUE")).alias("bureau_avg_days_overdue"), # avg overdue days
+            fmax(col("CREDIT_DAY_OVERDUE")).alias("bureau_max_days_overdue"), # max overdue days
         )
     )
 
-    # Previous applications
+    # --------------------------------------------------
+    # 3. Read previous applications
+    # --------------------------------------------------
     prev = read_table_partitioned(
         spark,
         table="raw.previous_application",
@@ -172,9 +205,10 @@ def main():
             "AMT_APPLICATION",
             "AMT_CREDIT",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
+    # Aggregate previous applications to customer level
     prev_agg = (
         prev.groupBy("SK_ID_CURR")
         .agg(
@@ -184,7 +218,10 @@ def main():
         )
     )
 
-    # POS cash balance
+    # --------------------------------------------------
+    # 4. Read POS cash balance
+    # POS = Point of Sale / cash loan history
+    # --------------------------------------------------
     pos = read_table_partitioned(
         spark,
         table="raw.pos_cash_balance",
@@ -194,9 +231,10 @@ def main():
             "SK_ID_CURR",
             "SK_DPD",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
+    # Aggregate POS data to customer level
     pos_agg = (
         pos.groupBy("SK_ID_CURR")
         .agg(
@@ -206,7 +244,9 @@ def main():
         )
     )
 
-    # Installments payments
+    # --------------------------------------------------
+    # 5. Read installments payments
+    # --------------------------------------------------
     inst = read_table_partitioned(
         spark,
         table="raw.installments_payments",
@@ -216,9 +256,10 @@ def main():
             "SK_ID_CURR",
             "AMT_PAYMENT",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
+    # Aggregate installment payments to customer level
     inst_agg = (
         inst.groupBy("SK_ID_CURR")
         .agg(
@@ -228,7 +269,9 @@ def main():
         )
     )
 
-    # Credit card balance
+    # --------------------------------------------------
+    # 6. Read credit card balance
+    # --------------------------------------------------
     cc = read_table_partitioned(
         spark,
         table="raw.credit_card_balance",
@@ -238,9 +281,10 @@ def main():
             "SK_ID_CURR",
             "AMT_BALANCE",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
+    # Aggregate credit card data to customer level
     cc_agg = (
         cc.groupBy("SK_ID_CURR")
         .agg(
@@ -250,7 +294,10 @@ def main():
         )
     )
 
-    # Join all aggregates back to application
+    # --------------------------------------------------
+    # 7. Join all aggregated datasets back to application base table
+    # left join = keep all base application rows even if some side data is missing
+    # --------------------------------------------------
     stg = (
         app
         .join(bureau_agg, on="SK_ID_CURR", how="left")
@@ -260,6 +307,7 @@ def main():
         .join(cc_agg, on="SK_ID_CURR", how="left")
     )
 
+    # Keep important base columns from application table
     base_keep = [
         "SK_ID_CURR",
         "TARGET",
@@ -273,20 +321,27 @@ def main():
         "AMT_ANNUITY",
         "AMT_GOODS_PRICE",
     ]
+
+    # Only keep columns that actually exist in the joined DataFrame
     existing_keep = [c for c in base_keep if c in stg.columns]
+
+    # These are the newly created aggregated feature columns
     agg_cols = [c for c in stg.columns if c not in app.columns]
 
+    # Final selected staging DataFrame
     final_df = stg.select(*(existing_keep + agg_cols))
 
-    # Keep write stable
+    # Repartition before write to keep output more balanced and stable
     final_df = final_df.repartition(4, col("SK_ID_CURR"))
 
-    # Write to staging
+    # Write final enriched dataset to staging schema
     write_table_jdbc(final_df, "staging.stg_loan_application_enriched", mode="overwrite")
 
+    # Stop Spark session
     spark.stop()
     print("✅ Staging table created: staging.stg_loan_application_enriched")
 
 
+# Standard Python entry point
 if __name__ == "__main__":
     main()

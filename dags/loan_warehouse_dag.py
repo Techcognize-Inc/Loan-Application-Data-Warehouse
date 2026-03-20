@@ -30,9 +30,9 @@ with DAG(
         bash_command='bash -c "cd /opt/airflow/project && bash scripts/run_staging.sh"',
     )
 
-    run_validations = BashOperator(
-        task_id="run_validations",
-        bash_command='bash -c "cd /opt/airflow/project && python great_expectations_suite/run_validations.py"',
+    validate_staging = BashOperator(
+        task_id="validate_staging",
+        bash_command='bash -c "cd /opt/airflow/project && bash scripts/run_staging_validations.sh"',
     )
 
     dbt_run = BashOperator(
@@ -40,9 +40,14 @@ with DAG(
         bash_command='bash -c "cd /opt/airflow/project && dbt run --profiles-dir /opt/airflow/.dbt"',
     )
 
+    run_validations = BashOperator(
+        task_id="run_validations",
+        bash_command='bash -c "cd /opt/airflow/project && python great_expectations_suite/run_validations.py"',
+    )
+
     dbt_test = BashOperator(
         task_id="dbt_test",
         bash_command='bash -c "cd /opt/airflow/project && dbt test --profiles-dir /opt/airflow/.dbt"',
     )
 
-    ingest_raw >> build_staging >> run_validations >> dbt_run >> dbt_test
+    ingest_raw >> build_staging >> validate_staging >> dbt_run >> run_validations >> dbt_test
