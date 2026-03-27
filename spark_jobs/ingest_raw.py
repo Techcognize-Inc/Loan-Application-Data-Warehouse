@@ -1,16 +1,11 @@
 import os
 
-# SparkSession is the main entry point to use Spark
 from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, lit, when
 
-# col() is used to refer to DataFrame columns
-from pyspark.sql.functions import col
-
-# These helper functions build JDBC connection details for Postgres
 from spark_jobs.common.jdbc import jdbc_url, jdbc_properties
 
 
-# Maps each source CSV file to the raw table name we want in Postgres
 TABLE_MAP = {
     "application_train.csv": "application_train",
     "bureau.csv": "bureau",
@@ -21,36 +16,41 @@ TABLE_MAP = {
     "credit_card_balance.csv": "credit_card_balance",
 }
 
-# RAW_PATH = folder where raw CSV files are stored
-# If RAW_PATH env variable is not set, use this default path
 RAW_PATH = os.getenv("RAW_PATH", "/opt/spark/work-dir/data/raw")
 
 
-def main():
-    # Build Spark session configuration
-    builder = (
-        SparkSession.builder
-        .appName("de3-ingest-raw")  # name shown in Spark UI / logs
-        .config("spark.sql.adaptive.enabled", "true")  # lets Spark optimize some execution at runtime
+def write_jdbc(df, table_name, mode="overwrite"):
+    (
+        df.write
+        .mode(mode)
+        .option("truncate", "true")
+        .option("batchsize", "5000")
+        .option("isolationLevel", "NONE")
+        .jdbc(
+            url=jdbc_url(),
+            table=table_name,
+            properties=jdbc_properties(),
+        )
     )
 
-    # If SPARK_MASTER is passed as env variable, connect to that Spark cluster
+
+def main():
+    builder = (
+        SparkSession.builder
+        .appName("de3-ingest-raw")
+        .config("spark.sql.adaptive.enabled", "true")
+    )
+
     spark_master = os.getenv("SPARK_MASTER")
     if spark_master:
         builder = builder.master(spark_master)
 
-    # Create Spark session
     spark = builder.getOrCreate()
 
-    # Loop through each CSV file and its matching target table name
     for file_name, table_name in TABLE_MAP.items():
-        # Build full path of the CSV file
         path = f"{RAW_PATH}/{file_name}"
         print(f"\n=== Reading: {path}")
 
-        # Read CSV into Spark DataFrame
-        # header=true -> first row is treated as column names
-        # inferSchema=true -> Spark tries to detect data types automatically
         df = (
             spark.read
             .option("header", "true")
@@ -58,44 +58,164 @@ def main():
             .csv(path)
         )
 
-        # Minimal cleanup:
-        # trim spaces from column names, if any exist
-        # Example: " SK_ID_CURR " -> "SK_ID_CURR"
+        # Clean only column names, not values
         df = df.select([col(c).alias(c.strip()) for c in df.columns])
 
-        # Target raw table name in Postgres
-        # Example: raw.application_train
-        full_table = f"raw.{table_name}"
+        raw_table = f"raw.{table_name}"
+        quarantine_table = f"quarantine.{table_name}_rejects"
 
-        # Count total rows for logging / validation
-        # Note: this is a Spark action, so it scans the DataFrame
-        row_count = df.count()
-        print(f"Writing to {full_table} | rows={row_count} | cols={len(df.columns)}")
+        # ------------------------------------------
+        # Main strong validation for application_train
+        # ------------------------------------------
+        if table_name == "application_train":
+            required_cols = [
+                "SK_ID_CURR",
+                "TARGET",
+                "AMT_CREDIT",
+                "AMT_INCOME_TOTAL",
+                "AMT_ANNUITY",
+                "AMT_GOODS_PRICE",
+            ]
 
-        # Reduce DataFrame partitions before writing
-        # coalesce(2) means use 2 output partitions for write
-        # This helps keep JDBC write stable in our local environment
-        write_df = df.coalesce(2)
+            missing_cols = [c for c in required_cols if c not in df.columns]
+            if missing_cols:
+                raise Exception(f"Missing required columns in {file_name}: {missing_cols}")
 
-        # Write DataFrame into Postgres using JDBC
-        (
-            write_df.write
-            .mode("overwrite")  # replace table contents if table already exists
-            .option("truncate", "true")  # try truncating before overwrite where possible
-            .option("batchsize", "5000")  # insert rows in batches for better performance
-            .option("isolationLevel", "NONE")  # reduce transaction overhead during bulk load
-            .jdbc(
-                url=jdbc_url(),               # JDBC URL for Postgres
-                table=full_table,             # destination table name
-                properties=jdbc_properties(), # user, password, driver
+            # Explicit casts for critical columns so we can catch bad values like 'abc'
+            df_casted = (
+                df
+                .withColumn("SK_ID_CURR_INT", col("SK_ID_CURR").cast("int"))
+                .withColumn("TARGET_INT", col("TARGET").cast("int"))
+                .withColumn("AMT_CREDIT_DBL", col("AMT_CREDIT").cast("double"))
+                .withColumn("AMT_INCOME_TOTAL_DBL", col("AMT_INCOME_TOTAL").cast("double"))
+                .withColumn("AMT_ANNUITY_DBL", col("AMT_ANNUITY").cast("double"))
+                .withColumn("AMT_GOODS_PRICE_DBL", col("AMT_GOODS_PRICE").cast("double"))
             )
+
+            reject_reason_expr = (
+                when(col("SK_ID_CURR").isNull(), lit("NULL_SK_ID_CURR"))
+                .when(
+                    col("SK_ID_CURR").isNotNull() & col("SK_ID_CURR_INT").isNull(),
+                    lit("INVALID_SK_ID_CURR_TYPE")
+                )
+                .when(col("TARGET").isNull(), lit("NULL_TARGET"))
+                .when(
+                    col("TARGET").isNotNull() & col("TARGET_INT").isNull(),
+                    lit("INVALID_TARGET_TYPE")
+                )
+                .when(
+                    col("TARGET_INT").isNotNull() & (~col("TARGET_INT").isin(0, 1)),
+                    lit("INVALID_TARGET")
+                )
+                .when(
+                    col("AMT_CREDIT").isNull(),
+                    lit("NULL_AMT_CREDIT")
+                )
+                .when(
+                    col("AMT_CREDIT").isNotNull() & col("AMT_CREDIT_DBL").isNull(),
+                    lit("INVALID_AMT_CREDIT")
+                )
+                .when(
+                    col("AMT_INCOME_TOTAL").isNull(),
+                    lit("NULL_AMT_INCOME_TOTAL")
+                )
+                .when(
+                    col("AMT_INCOME_TOTAL").isNotNull() & col("AMT_INCOME_TOTAL_DBL").isNull(),
+                    lit("INVALID_AMT_INCOME_TOTAL")
+                )
+                .when(
+                    col("AMT_ANNUITY").isNotNull() & col("AMT_ANNUITY_DBL").isNull(),
+                    lit("INVALID_AMT_ANNUITY")
+                )
+                .when(
+                    col("AMT_GOODS_PRICE").isNotNull() & col("AMT_GOODS_PRICE_DBL").isNull(),
+                    lit("INVALID_AMT_GOODS_PRICE")
+                )
+            )
+
+            rejects_df = df_casted.filter(
+                col("SK_ID_CURR").isNull() |
+                (col("SK_ID_CURR").isNotNull() & col("SK_ID_CURR_INT").isNull()) |
+                col("TARGET").isNull() |
+                (col("TARGET").isNotNull() & col("TARGET_INT").isNull()) |
+                (col("TARGET_INT").isNotNull() & (~col("TARGET_INT").isin(0, 1))) |
+                col("AMT_CREDIT").isNull() |
+                (col("AMT_CREDIT").isNotNull() & col("AMT_CREDIT_DBL").isNull()) |
+                col("AMT_INCOME_TOTAL").isNull() |
+                (col("AMT_INCOME_TOTAL").isNotNull() & col("AMT_INCOME_TOTAL_DBL").isNull()) |
+                (col("AMT_ANNUITY").isNotNull() & col("AMT_ANNUITY_DBL").isNull()) |
+                (col("AMT_GOODS_PRICE").isNotNull() & col("AMT_GOODS_PRICE_DBL").isNull())
+            ).withColumn("reject_reason", reject_reason_expr)
+
+            valid_df = df_casted.filter(
+                col("SK_ID_CURR_INT").isNotNull() &
+                col("TARGET_INT").isNotNull() &
+                col("TARGET_INT").isin(0, 1) &
+                col("AMT_CREDIT_DBL").isNotNull() &
+                col("AMT_INCOME_TOTAL_DBL").isNotNull()
+            )
+
+            # Replace original critical columns with validated typed versions
+            valid_df = (
+                valid_df
+                .drop("SK_ID_CURR", "TARGET", "AMT_CREDIT", "AMT_INCOME_TOTAL", "AMT_ANNUITY", "AMT_GOODS_PRICE")
+                .withColumnRenamed("SK_ID_CURR_INT", "SK_ID_CURR")
+                .withColumnRenamed("TARGET_INT", "TARGET")
+                .withColumnRenamed("AMT_CREDIT_DBL", "AMT_CREDIT")
+                .withColumnRenamed("AMT_INCOME_TOTAL_DBL", "AMT_INCOME_TOTAL")
+                .withColumnRenamed("AMT_ANNUITY_DBL", "AMT_ANNUITY")
+                .withColumnRenamed("AMT_GOODS_PRICE_DBL", "AMT_GOODS_PRICE")
+            )
+
+            # Drop helper cast columns from rejects before writing quarantine
+            helper_cols = [
+                "SK_ID_CURR_INT",
+                "TARGET_INT",
+                "AMT_CREDIT_DBL",
+                "AMT_INCOME_TOTAL_DBL",
+                "AMT_ANNUITY_DBL",
+                "AMT_GOODS_PRICE_DBL",
+            ]
+            for c in helper_cols:
+                if c in rejects_df.columns:
+                    rejects_df = rejects_df.drop(c)
+
+        # ------------------------------------------
+        # Lighter validation for the remaining files
+        # ------------------------------------------
+        else:
+            if "SK_ID_CURR" in df.columns:
+                rejects_df = (
+                    df.filter(col("SK_ID_CURR").isNull())
+                    .withColumn("reject_reason", lit("NULL_SK_ID_CURR"))
+                )
+                valid_df = df.filter(col("SK_ID_CURR").isNotNull())
+            else:
+                rejects_df = None
+                valid_df = df
+
+        # ------------------------------------------
+        # Logging
+        # ------------------------------------------
+        valid_count = valid_df.count()
+        reject_count = rejects_df.count() if rejects_df is not None else 0
+
+        print(
+            f"Writing valid rows to {raw_table} | valid_rows={valid_count} | "
+            f"reject_rows={reject_count} | cols={len(valid_df.columns)}"
         )
 
-    # Stop Spark session after all files are loaded
+        # Write valid rows to raw
+        write_jdbc(valid_df.coalesce(2), raw_table, mode="overwrite")
+
+        # Write rejected rows to quarantine if any exist
+        if rejects_df is not None and reject_count > 0:
+            print(f"Writing rejected rows to {quarantine_table}")
+            write_jdbc(rejects_df.coalesce(1), quarantine_table, mode="overwrite")
+
     spark.stop()
-    print("\n✅ Raw ingestion complete.")
+    print("\n✅ Raw ingestion complete with schema + data quality validation.")
 
 
-# Standard Python entry point
 if __name__ == "__main__":
     main()

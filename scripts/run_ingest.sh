@@ -3,6 +3,9 @@ set -euo pipefail
 
 echo "Running raw ingestion: raw.* tables"
 
+docker exec -i de3-postgres psql -U postgres -d bankingdb -c \
+"CREATE SCHEMA IF NOT EXISTS raw; CREATE SCHEMA IF NOT EXISTS staging; CREATE SCHEMA IF NOT EXISTS warehouse; CREATE SCHEMA IF NOT EXISTS quarantine;"
+
 docker exec -i de3-spark-master bash -c "
   cd /opt/spark/work-dir && \
   export PYTHONPATH=/opt/spark/work-dir && \
