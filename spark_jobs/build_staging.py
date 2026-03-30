@@ -114,10 +114,10 @@ def main():
 
     spark = builder.getOrCreate()
 
-    # Base application table
+    # Base application table (NOW reading from silver)
     app = read_table_partitioned(
         spark,
-        table="raw.application_train",
+        table="silver.application_train",
         preferred_partition_cols=["SK_ID_CURR"],
         columns=[
             "SK_ID_CURR",
@@ -135,10 +135,10 @@ def main():
         num_partitions=8,
     )
 
-    # Bureau
+    # Bureau (NOW reading from silver)
     bureau = read_table_partitioned(
         spark,
-        table="raw.bureau",
+        table="silver.bureau",
         preferred_partition_cols=["SK_ID_BUREAU", "SK_ID_CURR"],
         columns=[
             "SK_ID_BUREAU",
@@ -160,10 +160,10 @@ def main():
         )
     )
 
-    # Previous applications
+    # Previous applications (NOW reading from silver)
     prev = read_table_partitioned(
         spark,
-        table="raw.previous_application",
+        table="silver.previous_application",
         preferred_partition_cols=["SK_ID_PREV", "SK_ID_CURR"],
         columns=[
             "SK_ID_PREV",
@@ -183,10 +183,10 @@ def main():
         )
     )
 
-    # POS cash balance
+    # POS cash balance (NOW reading from silver)
     pos = read_table_partitioned(
         spark,
-        table="raw.pos_cash_balance",
+        table="silver.pos_cash_balance",
         preferred_partition_cols=["SK_ID_PREV", "SK_ID_CURR"],
         columns=[
             "SK_ID_PREV",
@@ -205,10 +205,10 @@ def main():
         )
     )
 
-    # Installments payments
+    # Installments payments (NOW reading from silver)
     inst = read_table_partitioned(
         spark,
-        table="raw.installments_payments",
+        table="silver.installments_payments",
         preferred_partition_cols=["SK_ID_PREV", "SK_ID_CURR"],
         columns=[
             "SK_ID_PREV",
@@ -227,10 +227,10 @@ def main():
         )
     )
 
-    # Credit card balance
+    # Credit card balance (NOW reading from silver)
     cc = read_table_partitioned(
         spark,
-        table="raw.credit_card_balance",
+        table="silver.credit_card_balance",
         preferred_partition_cols=["SK_ID_PREV", "SK_ID_CURR"],
         columns=[
             "SK_ID_PREV",
