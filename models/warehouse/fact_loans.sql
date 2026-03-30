@@ -1,13 +1,35 @@
 {{ config(materialized='table') }}
 
-SELECT
-    a.customer_id               AS customer_key,
-    AVG(a.loan_amount)          AS avg_credit_amount,
-    AVG(a.income)               AS avg_income,
-    COUNT(a.customer_id)        AS loan_application_count,
-    b.bureau_id                 AS bureau_id,
-    SUM(b."AMT_CREDIT_SUM")     AS total_bureau_credit
-FROM {{ ref('stg_applications') }} a
-LEFT JOIN {{ ref('stg_bureau') }} b
-    ON a.customer_id = b.customer_id
-GROUP BY a.customer_id, b.bureau_id
+with bureau_agg as (
+
+    select
+        b.customer_id,
+        count(distinct b.bureau_id) as bureau_record_count,
+        sum(b."AMT_CREDIT_SUM") as total_bureau_credit
+    from {{ ref('stg_bureau') }} b
+    group by b.customer_id
+
+),
+
+application_agg as (
+
+    select
+        a.customer_id as customer_key,
+        avg(a.loan_amount) as avg_credit_amount,
+        avg(a.income) as avg_income,
+        count(*) as loan_application_count
+    from {{ ref('stg_applications') }} a
+    group by a.customer_id
+
+)
+
+select
+    a.customer_key,
+    a.avg_credit_amount,
+    a.avg_income,
+    a.loan_application_count,
+    coalesce(b.bureau_record_count, 0) as bureau_record_count,
+    coalesce(b.total_bureau_credit, 0) as total_bureau_credit
+from application_agg a
+left join bureau_agg b
+    on a.customer_key = b.customer_id

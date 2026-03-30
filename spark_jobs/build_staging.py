@@ -1,5 +1,7 @@
+import os
+
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, count, avg, max as fmax, sum as fsum
+from pyspark.sql.functions import col, count, avg, max as fmax, sum as fsum, lit, when
 
 from spark_jobs.common.jdbc import jdbc_url, jdbc_properties
 
@@ -8,24 +10,31 @@ from spark_jobs.common.jdbc import jdbc_url, jdbc_properties
 # Helpers
 # -----------------------------
 def quote_ident(name: str) -> str:
-    # Postgres identifier quoting
     return f'"{name}"'
 
 
 def table_columns(spark: SparkSession, table: str) -> list[str]:
-    # This is a metadata-only read (Spark typically issues a WHERE 1=0 query)
-    return spark.read.jdbc(url=jdbc_url(), table=table, properties=jdbc_properties()).columns
+    return spark.read.jdbc(
+        url=jdbc_url(),
+        table=table,
+        properties=jdbc_properties(),
+    ).columns
 
 
 def get_bounds(spark: SparkSession, table: str, partition_col: str) -> tuple[int, int]:
-    # IMPORTANT: quote column to preserve uppercase identifiers created by Spark/JDBC
     q = f'(SELECT MIN({quote_ident(partition_col)}) AS lo, MAX({quote_ident(partition_col)}) AS hi FROM {table}) t'
-    row = spark.read.jdbc(url=jdbc_url(), table=q, properties=jdbc_properties()).collect()[0]
+    row = spark.read.jdbc(
+        url=jdbc_url(),
+        table=q,
+        properties=jdbc_properties(),
+    ).collect()[0]
+
     lo = row["lo"]
     hi = row["hi"]
+
     if lo is None or hi is None:
-        # empty table or null bounds
         return 0, 1
+
     return int(lo), int(hi)
 
 
@@ -34,43 +43,33 @@ def read_table_partitioned(
     table: str,
     preferred_partition_cols: list[str],
     columns: list[str],
-    num_partitions: int = 16,
+    num_partitions: int = 8,
 ):
-    """
-    Partitioned JDBC read:
-    - Picks first partition col that exists in the table
-    - Ensures partition col is included in selected columns
-    - Uses quoted bounds query (MIN/MAX) to avoid case issues
-    """
     cols_in_table = table_columns(spark, table)
 
-    # pick a partition col that exists
     partition_col = None
     for c in preferred_partition_cols:
         if c in cols_in_table:
             partition_col = c
             break
+
     if partition_col is None:
-        # last resort: no partitioning
         keep = [c for c in columns if c in cols_in_table]
         return (
-            spark.read
-            .jdbc(url=jdbc_url(), table=table, properties=jdbc_properties())
-            .select(*keep)
+            spark.read.jdbc(
+                url=jdbc_url(),
+                table=table,
+                properties=jdbc_properties(),
+            ).select(*keep)
         )
 
-    # Ensure partition column included
-    select_cols = list(dict.fromkeys(columns + [partition_col]))  # preserve order, de-dupe
+    select_cols = list(dict.fromkeys(columns + [partition_col]))
     select_cols = [c for c in select_cols if c in cols_in_table]
     quoted_cols = ", ".join([quote_ident(c) for c in select_cols])
 
-    # Use subquery so we can control selected columns (and keep partition col present)
     subquery = f'(SELECT {quoted_cols} FROM {table}) t'
-
     lo, hi = get_bounds(spark, table, partition_col)
 
-    # Important: Spark "partitionColumn" refers to column name as returned by JDBC relation.
-    # Since our subquery selects "SK_ID_..." with quotes, Spark sees them as SK_ID_... (same name).
     return (
         spark.read.format("jdbc")
         .option("url", jdbc_url())
@@ -86,12 +85,16 @@ def read_table_partitioned(
     )
 
 
-def write_table_jdbc(df, table: str, mode: str = "overwrite"):
+def write_table_jdbc(df, table_name, mode="overwrite"):
     (
         df.write
         .mode(mode)
-        .option("batchsize", 20000)
-        .jdbc(url=jdbc_url(), table=table, properties=jdbc_properties())
+        .option("batchsize", 5000)
+        .jdbc(
+            url=jdbc_url(),
+            table=table_name,
+            properties=jdbc_properties(),
+        )
     )
 
 
@@ -99,18 +102,22 @@ def write_table_jdbc(df, table: str, mode: str = "overwrite"):
 # Main
 # -----------------------------
 def main():
-    spark = (
+    builder = (
         SparkSession.builder
         .appName("de3-build-staging")
-        # helpful defaults (can still be overridden by spark-submit --conf)
         .config("spark.sql.adaptive.enabled", "true")
-        .getOrCreate()
     )
 
-    # Base application table (one row per loan application)
+    spark_master = os.getenv("SPARK_MASTER")
+    if spark_master:
+        builder = builder.master(spark_master)
+
+    spark = builder.getOrCreate()
+
+    # Base application table (NOW reading from silver)
     app = read_table_partitioned(
         spark,
-        table="raw.application_train",
+        table="silver.application_train",
         preferred_partition_cols=["SK_ID_CURR"],
         columns=[
             "SK_ID_CURR",
@@ -125,21 +132,21 @@ def main():
             "AMT_ANNUITY",
             "AMT_GOODS_PRICE",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
-    # Bureau (partition by SK_ID_BUREAU if present, fallback to SK_ID_CURR)
+    # Bureau (NOW reading from silver)
     bureau = read_table_partitioned(
         spark,
-        table="raw.bureau",
+        table="silver.bureau",
         preferred_partition_cols=["SK_ID_BUREAU", "SK_ID_CURR"],
         columns=[
-            "SK_ID_BUREAU",        # ✅ MUST include if partitioning by it
+            "SK_ID_BUREAU",
             "SK_ID_CURR",
             "AMT_CREDIT_SUM",
             "CREDIT_DAY_OVERDUE",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
     bureau_agg = (
@@ -153,10 +160,10 @@ def main():
         )
     )
 
-    # Previous applications (prefer SK_ID_PREV if exists, else SK_ID_CURR)
+    # Previous applications (NOW reading from silver)
     prev = read_table_partitioned(
         spark,
-        table="raw.previous_application",
+        table="silver.previous_application",
         preferred_partition_cols=["SK_ID_PREV", "SK_ID_CURR"],
         columns=[
             "SK_ID_PREV",
@@ -164,7 +171,7 @@ def main():
             "AMT_APPLICATION",
             "AMT_CREDIT",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
     prev_agg = (
@@ -176,17 +183,17 @@ def main():
         )
     )
 
-    # POS cash balance (prefer SK_ID_PREV, else SK_ID_CURR)
+    # POS cash balance (NOW reading from silver)
     pos = read_table_partitioned(
         spark,
-        table="raw.pos_cash_balance",
+        table="silver.pos_cash_balance",
         preferred_partition_cols=["SK_ID_PREV", "SK_ID_CURR"],
         columns=[
             "SK_ID_PREV",
             "SK_ID_CURR",
             "SK_DPD",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
     pos_agg = (
@@ -198,17 +205,17 @@ def main():
         )
     )
 
-    # Installments payments (prefer SK_ID_PREV, else SK_ID_CURR)
+    # Installments payments (NOW reading from silver)
     inst = read_table_partitioned(
         spark,
-        table="raw.installments_payments",
+        table="silver.installments_payments",
         preferred_partition_cols=["SK_ID_PREV", "SK_ID_CURR"],
         columns=[
             "SK_ID_PREV",
             "SK_ID_CURR",
             "AMT_PAYMENT",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
     inst_agg = (
@@ -220,17 +227,17 @@ def main():
         )
     )
 
-    # Credit card balance (prefer SK_ID_PREV, else SK_ID_CURR)
+    # Credit card balance (NOW reading from silver)
     cc = read_table_partitioned(
         spark,
-        table="raw.credit_card_balance",
+        table="silver.credit_card_balance",
         preferred_partition_cols=["SK_ID_PREV", "SK_ID_CURR"],
         columns=[
             "SK_ID_PREV",
             "SK_ID_CURR",
             "AMT_BALANCE",
         ],
-        num_partitions=16,
+        num_partitions=8,
     )
 
     cc_agg = (
@@ -242,7 +249,7 @@ def main():
         )
     )
 
-    # Join all features to application table (left joins keep all apps)
+    # Join all aggregates back to application
     stg = (
         app
         .join(bureau_agg, on="SK_ID_CURR", how="left")
@@ -252,7 +259,6 @@ def main():
         .join(cc_agg, on="SK_ID_CURR", how="left")
     )
 
-    # Keep base cols + all new agg cols
     base_keep = [
         "SK_ID_CURR",
         "TARGET",
@@ -267,18 +273,55 @@ def main():
         "AMT_GOODS_PRICE",
     ]
     existing_keep = [c for c in base_keep if c in stg.columns]
-    agg_cols = [c for c in stg.columns if c not in app.columns]  # new features only
+    agg_cols = [c for c in stg.columns if c not in app.columns]
 
     final_df = stg.select(*(existing_keep + agg_cols))
 
-    # Reduce skew before write (helps stability)
-    final_df = final_df.repartition(16, col("SK_ID_CURR"))
+    # ------------------------------------------
+    # Final important staging checks only
+    # ------------------------------------------
+    reject_reason_expr = (
+        when(col("SK_ID_CURR").isNull(), lit("NULL_SK_ID_CURR"))
+        .when(col("TARGET").isNull(), lit("NULL_TARGET"))
+        .when(~col("TARGET").isin(0, 1), lit("INVALID_TARGET"))
+        .when(col("AMT_CREDIT").isNull(), lit("NULL_AMT_CREDIT"))
+        .when(col("AMT_INCOME_TOTAL").isNull(), lit("NULL_AMT_INCOME_TOTAL"))
+    )
 
-    # Write to staging
-    write_table_jdbc(final_df, "staging.stg_loan_application_enriched", mode="overwrite")
+    rejects_df = final_df.filter(
+        col("SK_ID_CURR").isNull() |
+        col("TARGET").isNull() |
+        (~col("TARGET").isin(0, 1)) |
+        col("AMT_CREDIT").isNull() |
+        col("AMT_INCOME_TOTAL").isNull()
+    ).withColumn("reject_reason", reject_reason_expr)
+
+    valid_df = final_df.filter(
+        col("SK_ID_CURR").isNotNull() &
+        col("TARGET").isNotNull() &
+        col("TARGET").isin(0, 1) &
+        col("AMT_CREDIT").isNotNull() &
+        col("AMT_INCOME_TOTAL").isNotNull()
+    )
+
+    # Keep write stable
+    valid_df = valid_df.repartition(4, col("SK_ID_CURR"))
+
+    # Write curated staging rows
+    write_table_jdbc(valid_df, "staging.stg_loan_application_enriched", mode="overwrite")
+
+    # Write staging rejects if any
+    reject_count = rejects_df.count()
+    if reject_count > 0:
+        write_table_jdbc(
+            rejects_df.coalesce(1),
+            "quarantine.stg_loan_application_enriched_rejects",
+            mode="overwrite",
+        )
 
     spark.stop()
     print("✅ Staging table created: staging.stg_loan_application_enriched")
+    print(f"✅ Staging rejected rows written: {reject_count}")
 
 
 if __name__ == "__main__":

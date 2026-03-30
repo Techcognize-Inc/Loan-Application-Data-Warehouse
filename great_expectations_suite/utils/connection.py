@@ -6,5 +6,5 @@ def get_context():
 def get_datasource(context):
     return context.data_sources.add_or_update_postgres(
         name="loan_warehouse",
-        connection_string="postgresql+psycopg2://revanth@localhost:5432/analytics_dev",
+        connection_string="postgresql+psycopg2://postgres:password@localhost:5433/bankingdb",
     )
