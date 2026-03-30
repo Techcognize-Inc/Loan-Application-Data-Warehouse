@@ -1,4 +1,6 @@
 services:
+
+  # --- PostgreSQL (for Jenkins pipeline) ---
   postgres:
     image: postgres:15
     container_name: de3-postgres
@@ -8,13 +10,6 @@ services:
       POSTGRES_USER: postgres
     ports:
       - "5433:5432"
-
-  spark-master:
-    image: spark:3.5.7-java17-python3
-    container_name: de3-spark-master
-    ports:
-      - "8080:8080"   # Spark Master UI
-      - "7077:7077"   # Spark Master port
     volumes:
       - ..:/opt/spark/work-dir
     command: >
